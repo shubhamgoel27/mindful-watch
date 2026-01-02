@@ -1,0 +1,19 @@
+[project]
+name = "mindful-watch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-api-python-client>=2.187.0",
+    "isodate>=0.7.2",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+    "streamlit>=1.52.2",
+    "tmdbv3api>=1.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
