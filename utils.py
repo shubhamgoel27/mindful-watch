@@ -231,7 +231,8 @@ def get_static_content_pool():
         content.append({
             "id": f"mock_m_{i}", "title": t, "type": "movie",
             "poster_path": f"https://placehold.co/300x450/{color}/FFF?text={t.replace(' ', '+')}",
-            "overview": f"A classic {g} movie.", "vote_average": 8.0, "runtime": 120
+            "overview": f"A classic {g} movie.", "vote_average": 8.0, "runtime": 120,
+            "match_reason": "Popular Classic" 
         })
     for i, (t, c) in enumerate(videos):
         color = f"{random.randint(50, 200):02x}{random.randint(50, 200):02x}{random.randint(50, 200):02x}"
@@ -239,7 +240,8 @@ def get_static_content_pool():
             "id": f"mock_v_{i}", "title": t, "type": "video", "video_id": f"mock_vid_{i}",
             "poster_path": f"https://placehold.co/400x225/{color}/FFF?text={t.replace(' ', '+')}",
             "thumbnail": f"https://placehold.co/400x225/{color}/FFF?text={t.replace(' ', '+')}",
-            "description": f"Video about {c}.", "duration": "20 mins", "overview": f"Video about {c}."
+            "description": f"Video about {c}.", "duration": "20 mins", "overview": f"Video about {c}.",
+            "match_reason": "Curated Pick"
         })
         
     # Ensure this static pool is ALSO cached to DB on first load!
