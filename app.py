@@ -4,6 +4,43 @@ import config
 
 st.set_page_config(page_title="MindfulWatch Recommender", layout="wide", page_icon="🧘")
 
+# --- Custom CSS for Uniform Thumbnails & Cards ---
+st.markdown("""
+    <style>
+    /* Target onboarding and result images */
+    [data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
+    }
+    
+    [data-testid="stImage"] img {
+        height: 300px !important;
+        object-fit: cover !important;
+        object-position: top !important; /* Keep faces/titles visible */
+        border-radius: 10px;
+        width: 100% !important;
+    }
+    
+    /* Ensure containers don't collapse */
+    .stColumn > div {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Fixed height title for cards */
+    .card-title {
+        height: 3em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- Session State Initialization ---
 if 'user' not in st.session_state:
     st.session_state.user = None
@@ -11,6 +48,8 @@ if 'user_data' not in st.session_state:
     st.session_state.user_data = {}
 if 'recommendations' not in st.session_state:
     st.session_state.recommendations = {'movies': [], 'videos': []}
+if 'api_errors' not in st.session_state:
+    st.session_state.api_errors = []
 if 'submitted' not in st.session_state:
     st.session_state.submitted = False
 
@@ -20,7 +59,7 @@ def login_user(username):
     st.session_state.user = username
     if username in all_data:
         st.session_state.user_data = all_data[username]
-        return False # Not a new user (unless they have empty data)
+        return False # Not a new user
     else:
         st.session_state.user_data = {
             "history": [],
@@ -56,7 +95,6 @@ def show_onboarding():
     st.title(f"Welcome, {st.session_state.user}! Let's get to know you.")
     st.write("Select the content (Movies & Videos) you enjoy to help us calibrate recommendations.")
     
-    # Fetch onboarding movies
     if 'onboarding_movies' not in st.session_state:
         st.session_state.onboarding_movies = utils.get_onboarding_content()
     
@@ -75,13 +113,21 @@ def show_onboarding():
     for idx, movie in enumerate(movies):
         with cols[idx % 3]:
             with st.container(border=True):
-                st.image(movie['poster_path'], use_container_width=True)
+                # Standardized key 'poster_path' from utils.py
+                img_url = movie.get('poster_path')
+                if img_url:
+                    st.image(img_url, width="stretch")
+                else:
+                    st.image("https://via.placeholder.com/300x450?text=No+Image", width="stretch")
                 
-                # Checkbox state management
+                # Truncate title for checkbox to ensure relatively uniform height
+                title = movie['title']
+                display_title = (title[:45] + '..') if len(title) > 45 else title
+                
                 is_selected = movie['title'] in st.session_state.selected_onboarding
-                if st.checkbox(movie['title'], key=f"fav_{movie['id']}", value=is_selected):
+                if st.checkbox(display_title, key=f"fav_{movie['id']}", value=is_selected):
                     st.session_state.selected_onboarding.add(movie['title'])
-                elif is_selected: # If unchecked but was in set, remove it
+                elif is_selected:
                      if movie['title'] in st.session_state.selected_onboarding:
                          st.session_state.selected_onboarding.remove(movie['title'])
 
@@ -93,7 +139,7 @@ def show_onboarding():
                 st.rerun()
     
     st.markdown("---")
-    st.write(f"**Selected:** {len(st.session_state.selected_onboarding)} movies")
+    st.write(f"**Selected:** {len(st.session_state.selected_onboarding)} items")
     
     if st.button("Finish Setup", type="primary"):
         st.session_state.user_data['liked_movies_onboarding'] = list(st.session_state.selected_onboarding)
@@ -111,12 +157,11 @@ def show_dashboard():
         
     if st.sidebar.button("Retake Onboarding"):
         st.session_state.view = 'onboarding'
-        st.session_state.page_count = 1 # Reset pagination
+        st.session_state.page_count = 1
         st.rerun()
     
     st.sidebar.markdown("---")
 
-    # Pre-fill data
     user_prefs = st.session_state.user_data.get('preferences', {})
     default_watched = user_prefs.get('watched_movies', ", ".join(st.session_state.user_data.get('liked_movies_onboarding', [])))
 
@@ -138,18 +183,34 @@ def show_dashboard():
         }
         save_current_state()
         st.session_state.submitted = True
+        st.session_state.api_errors = [] # Reset errors
         
-        with st.spinner("Curating your mindful mix..."):
-            st.session_state.recommendations['movies'] = utils.fetch_movie_recommendations(
+        with st.spinner("Analyzing semantic matches & curating your mix..."):
+            # Fetch Movies
+            movies, m_err = utils.fetch_movie_recommendations(
                 subscriptions, watched_movies, liked_actors, liked_directors, max_watch_time, focus_mode, mood_goal
             )
+            st.session_state.recommendations['movies'] = movies
+            if m_err: st.session_state.api_errors.append(m_err)
+
+            # Fetch Videos
             if focus_mode:
-                st.session_state.recommendations['videos'] = utils.fetch_video_recommendations(mood_goal if mood_goal else "interesting")
+                videos, v_err = utils.fetch_video_recommendations(mood_goal if mood_goal else "interesting")
+                st.session_state.recommendations['videos'] = videos
+                if v_err: st.session_state.api_errors.append(v_err)
             else:
                 st.session_state.recommendations['videos'] = []
 
     st.title("MindfulWatch Recommender 🎬")
     
+    # Display API Errors/Warnings if any
+    if st.session_state.api_errors:
+        for err in st.session_state.api_errors:
+            if "Demo Mode" in err:
+                st.warning(f"⚠️ {err}")
+            else:
+                st.error(f"❌ {err}")
+
     if st.session_state.submitted:
         movies = st.session_state.recommendations['movies']
         videos = st.session_state.recommendations['videos']
@@ -181,7 +242,7 @@ def show_dashboard():
             if sort_order != "Default":
                 def get_duration(item):
                     if item['type'] == 'movie': return item['data'].get('runtime', 999)
-                    # Parse string duration "25 mins" -> int
+                    # Parse "25 mins" -> int
                     d_str = item['data'].get('duration', '0 mins')
                     return int(d_str.split()[0]) if d_str.split()[0].isdigit() else 0
                 
@@ -198,20 +259,39 @@ def show_dashboard():
                     col1, col2 = st.columns([1, 4])
                     with col1:
                         img_url = data.get('poster_path') if is_movie else data.get('thumbnail')
-                        if img_url: st.image(img_url, use_container_width=True)
+                        if img_url: st.image(img_url, width="stretch")
+                        else: st.image("https://via.placeholder.com/150?text=No+Img", width="stretch")
                     
                     with col2:
                         icon = "🎥" if is_movie else "▶️"
                         title = data['title']
                         duration = f"{data.get('runtime', 'N/A')} mins" if is_movie else data.get('duration')
-                        st.subheader(f"{icon} {title}")
-                        st.caption(f"**Duration:** {duration} | **Match:** {data['match_reason']}")
+                        
+                        # Use custom HTML for fixed-height title
+                        st.markdown(f"<div class='card-title'>{icon} {title}</div>", unsafe_allow_html=True)
+                        st.markdown(f"**Duration:** {duration} | {data['match_reason']}", unsafe_allow_html=True)
                         st.write(data.get('overview') if is_movie else data.get('description'))
                         
                         if is_movie:
-                            st.markdown(f"[Details on TMDB](https://www.themoviedb.org/movie/{data.get('id', '')})")
+                            # Robust Link Logic
+                            mid = data.get('id')
+                            title_enc = data['title'].replace(' ', '+')
+                            
+                            if mid and not (isinstance(mid, str) and mid.startswith('mock')):
+                                link = f"https://www.themoviedb.org/movie/{mid}"
+                            else:
+                                link = f"https://www.themoviedb.org/search?query={title_enc}"
+                            
+                            st.markdown(f"[View on TMDB]({link})")
                         else:
-                            st.markdown(f"[Watch on YouTube](https://www.youtube.com/watch?v={data['video_id']})")
+                            vid_id = data.get('video_id')
+                            title_enc = data['title'].replace(' ', '+')
+                            
+                            if vid_id and not (isinstance(vid_id, str) and vid_id.startswith('mock')):
+                                link = f"https://www.youtube.com/watch?v={vid_id}"
+                            else:
+                                link = f"https://www.youtube.com/results?search_query={title_enc}"
+                            st.markdown(f"[Watch on YouTube]({link})")
                 st.write("") 
         else:
             st.info("No recommendations found.")
