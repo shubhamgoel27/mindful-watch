@@ -1,3 +1,7 @@
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 import streamlit as st
 import utils
 import config
@@ -269,7 +273,7 @@ def show_dashboard():
                         
                         # Use custom HTML for fixed-height title
                         st.markdown(f"<div class='card-title'>{icon} {title}</div>", unsafe_allow_html=True)
-                        st.markdown(f"**Duration:** {duration} | {data['match_reason']}", unsafe_allow_html=True)
+                        st.markdown(f"**Duration:** {duration} | {data.get('match_reason', 'Recommended')}", unsafe_allow_html=True)
                         st.write(data.get('overview') if is_movie else data.get('description'))
                         
                         if is_movie:
