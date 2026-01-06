@@ -9,7 +9,16 @@ import streamlit as st
 import utils
 import config
 
-st.set_page_config(page_title="MindfulWatch Recommender", layout="wide", page_icon="🧘")
+st.set_page_config(page_title="MindfulWatch Recommender v1.1", layout="wide", page_icon="🧘")
+
+# --- Debug / System Status (Sidebar) ---
+with st.sidebar.expander("🛠️ System Status"):
+    tmdb_ok = config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY"
+    yt_ok = config.YOUTUBE_API_KEY and config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY"
+    st.write(f"**TMDB API:** {'✅ Detected' if tmdb_ok else '❌ Missing'}")
+    st.write(f"**YouTube API:** {'✅ Detected' if yt_ok else '❌ Missing'}")
+    if not tmdb_ok or not yt_ok:
+        st.info("Add your API keys to Streamlit Secrets for full functionality.")
 
 # --- Custom CSS for Uniform Thumbnails & Cards ---
 st.markdown("""

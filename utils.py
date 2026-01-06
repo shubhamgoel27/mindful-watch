@@ -14,11 +14,13 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-# --- Setup TMDB ---
-tmdb = TMDb()
-tmdb.api_key = config.TMDB_API_KEY
-tmdb.language = 'en'
-tmdb.debug = True
+# --- Lazy TMDB Setup ---
+def get_tmdb():
+    """Returns a configured TMDB instance."""
+    t = TMDb()
+    t.api_key = config.TMDB_API_KEY
+    t.language = 'en'
+    return t
 
 # --- Model Loading (Cached) ---
 @st.cache_resource
@@ -230,7 +232,7 @@ def get_static_content_pool():
         color = f"{random.randint(50, 200):02x}{random.randint(50, 200):02x}{random.randint(50, 200):02x}"
         content.append({
             "id": f"mock_m_{i}", "title": t, "type": "movie",
-            "poster_path": f"https://placehold.co/300x450/{color}/FFF?text={t.replace(' ', '+')}",
+            "poster_path": f"https://via.placeholder.com/300x450/{color}/FFFFFF?text={t.replace(' ', '+')}",
             "overview": f"A classic {g} movie.", "vote_average": 8.0, "runtime": 120,
             "match_reason": "Popular Classic" 
         })
@@ -238,8 +240,8 @@ def get_static_content_pool():
         color = f"{random.randint(50, 200):02x}{random.randint(50, 200):02x}{random.randint(50, 200):02x}"
         content.append({
             "id": f"mock_v_{i}", "title": t, "type": "video", "video_id": f"mock_vid_{i}",
-            "poster_path": f"https://placehold.co/400x225/{color}/FFF?text={t.replace(' ', '+')}",
-            "thumbnail": f"https://placehold.co/400x225/{color}/FFF?text={t.replace(' ', '+')}",
+            "poster_path": f"https://via.placeholder.com/400x225/{color}/FFFFFF?text={t.replace(' ', '+')}",
+            "thumbnail": f"https://via.placeholder.com/400x225/{color}/FFFFFF?text={t.replace(' ', '+')}",
             "description": f"Video about {c}.", "duration": "20 mins", "overview": f"Video about {c}.",
             "match_reason": "Curated Pick"
         })
@@ -249,6 +251,13 @@ def get_static_content_pool():
     return content
 
 # --- Fetch Logic ---
+
+def init_tmdb():
+    """Initializes global TMDB settings from config."""
+    t = TMDb()
+    t.api_key = config.TMDB_API_KEY
+    t.language = 'en'
+    return t
 
 def safe_get(item, key, default=None):
     """Safely gets a value from a dict or object."""
@@ -262,8 +271,9 @@ def get_onboarding_content():
     seen_ids = set()
     
     # 1. Fetch from APIs if keys exist
-    if config.TMDB_API_KEY != "YOUR_TMDB_KEY":
+    if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
         try:
+            init_tmdb()
             discover = Discover()
             genres = [28, 35, 18, 878, 99]
             for g_id in genres:
@@ -368,8 +378,9 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     error_msg = None
     
     # A. Try Live API (Recall)
-    if config.TMDB_API_KEY != "YOUR_TMDB_KEY":
+    if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
         try:
+            init_tmdb()
             discover = Discover()
             kwargs = {
                 'sort_by': 'popularity.desc', 'vote_average.gte': 6.5,
