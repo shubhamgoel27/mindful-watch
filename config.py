@@ -1,11 +1,23 @@
 import os
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
 
+def get_secret(key, default):
+    """Retrieves secret from streamlit secrets (cloud) or environment variables (local)."""
+    try:
+        # Check Streamlit Secrets first
+        if key in st.secrets:
+            return st.secrets[key]
+    except:
+        # Fallback if st.secrets is not available (e.g., during tests)
+        pass
+    return os.getenv(key, default)
+
 # API Keys
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "YOUR_TMDB_KEY")
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "YOUR_YOUTUBE_KEY")
+TMDB_API_KEY = get_secret("TMDB_API_KEY", "YOUR_TMDB_KEY")
+YOUTUBE_API_KEY = get_secret("YOUTUBE_API_KEY", "YOUR_YOUTUBE_KEY")
 
 # Mapping for Watch Providers (US Region IDs approx.)
 PROVIDER_MAP = {
