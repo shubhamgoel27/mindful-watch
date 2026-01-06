@@ -1,6 +1,9 @@
 .venv/
 __pycache__/
 .env
+.env.*
 user_data.json
 .DS_Store
 mindful_watch_db/
+*.swp
+*.swo
