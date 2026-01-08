@@ -3,6 +3,8 @@ import requests
 import json
 import os
 import traceback
+import re
+from collections import Counter
 import chromadb
 from chromadb.utils import embedding_functions
 from googleapiclient.discovery import build
@@ -30,6 +32,77 @@ def load_embedding_model():
     # We use this for manual encoding if needed, though Chroma handles it too.
     # To keep it consistent across the app, we'll use this model instance.
     return SentenceTransformer('all-MiniLM-L6-v2')
+
+# --- Score Normalization ---
+def normalize_score(raw_score, min_raw=0.0, max_raw=0.35):
+    """
+    Normalize cosine similarity to a more meaningful display range (50-100%).
+    Cosine similarity for sentence embeddings typically ranges 0.0-0.4 for reasonable matches.
+    """
+    clamped = max(min_raw, min(raw_score, max_raw))
+    normalized = (clamped - min_raw) / (max_raw - min_raw)
+    return int(50 + normalized * 50)  # Maps to 50-100%
+
+# --- Keyword Extraction ---
+# Common stopwords to filter out
+STOPWORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+    'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had',
+    'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
+    'this', 'that', 'these', 'those', 'it', 'its', 'he', 'she', 'they', 'we', 'you',
+    'who', 'which', 'what', 'when', 'where', 'how', 'why', 'all', 'each', 'every',
+    'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
+    'same', 'so', 'than', 'too', 'very', 'just', 'also', 'now', 'here', 'there',
+    'about', 'after', 'before', 'between', 'into', 'through', 'during', 'above',
+    'below', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
+    'once', 'their', 'them', 'his', 'her', 'him', 'your', 'our', 'my', 'can', 'get'
+}
+
+def extract_user_keywords(liked_titles, onboarding_content, top_k=8):
+    """
+    Extract top keywords from user's liked content to enrich search queries.
+    
+    Args:
+        liked_titles: List of titles the user liked during onboarding
+        onboarding_content: List of content dicts with title, overview/description
+        top_k: Number of top keywords to extract
+    
+    Returns:
+        String of top keywords joined by spaces
+    """
+    if not liked_titles or not onboarding_content:
+        return ""
+    
+    # Build a lookup for content by title
+    content_by_title = {item.get('title', ''): item for item in onboarding_content}
+    
+    # Collect all text from liked content
+    all_text = []
+    for title in liked_titles:
+        if title in content_by_title:
+            item = content_by_title[title]
+            text = f"{item.get('overview', '')} {item.get('description', '')}"
+            all_text.append(text)
+    
+    if not all_text:
+        return ""
+    
+    combined_text = " ".join(all_text).lower()
+    
+    # Extract words (alphanumeric, 3+ chars)
+    words = re.findall(r'\b[a-z]{3,}\b', combined_text)
+    
+    # Filter stopwords
+    filtered_words = [w for w in words if w not in STOPWORDS]
+    
+    # Count frequencies
+    word_counts = Counter(filtered_words)
+    
+    # Get top keywords
+    top_keywords = [word for word, count in word_counts.most_common(top_k)]
+    
+    logger.debug(f"Extracted keywords from {len(liked_titles)} liked items: {top_keywords}")
+    return " ".join(top_keywords)
 
 # --- Vector Database Setup (ChromaDB) ---
 @st.cache_resource
@@ -397,10 +470,20 @@ def search_person_id(name):
         return None
     return None
 
-def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors, max_time, focus_mode, mood):
+def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors, max_time, focus_mode, mood, liked_content=None):
     """
     Hybrid Search: API -> Cache -> Vector Search fallback.
+    liked_content: tuple of (liked_titles, onboarding_content) for query enrichment
     """
+    # Build enriched query from user's liked content
+    enriched_query = mood
+    if liked_content and mood:
+        liked_titles, onboarding_content = liked_content
+        keywords = extract_user_keywords(liked_titles, onboarding_content)
+        if keywords:
+            enriched_query = f"{mood} {keywords}"
+            logger.info(f"Enriched query: '{enriched_query}'")
+    
     logger.info(f"Fetching movie recommendations - mood: '{mood}', max_time: {max_time}, focus_mode: {focus_mode}")
     api_results = []
     error_msg = None
@@ -496,17 +579,27 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     # Even if they came from API, we re-rank them here (unless they came from vector search already)
     # The `query_vector_db` already returns sorted by distance, but `api_results` are sorted by popularity.
     if mood and api_results:
-        logger.info(f"Re-ranking {len(candidates)} movies by semantic similarity to '{mood}'")
+        logger.info(f"Re-ranking {len(candidates)} movies by semantic similarity to '{enriched_query}'")
         # Use our manual re-ranker for the fresh API batch
-        candidates = semantic_rerank(candidates, mood, text_key='overview', top_k=10)
+        candidates = semantic_rerank(candidates, enriched_query, text_key='overview', top_k=10)
         for item in candidates:
             score = item.get('similarity_score', 0)
-            item['match_reason'] = f"<b>{int(score*100)}% Match</b> to '{mood}'"
+            display_pct = normalize_score(score)
+            item['match_reason'] = f"<b>{display_pct}% Match</b> to '{mood}'"
 
     logger.info(f"Returning {len(candidates[:10])} movie recommendations")
     return candidates[:10], error_msg
 
-def fetch_video_recommendations(mood, max_time_mins=40):
+def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
+    # Build enriched query from user's liked content
+    enriched_query = mood
+    if liked_content and mood:
+        liked_titles, onboarding_content = liked_content
+        keywords = extract_user_keywords(liked_titles, onboarding_content)
+        if keywords:
+            enriched_query = f"{mood} {keywords}"
+            logger.info(f"Video enriched query: '{enriched_query}'")
+    
     logger.info(f"Fetching video recommendations for mood: '{mood}'")
     api_results = []
     error_msg = None
@@ -556,10 +649,11 @@ def fetch_video_recommendations(mood, max_time_mins=40):
 
     if mood and api_results:
         logger.info(f"Re-ranking {len(candidates)} videos by semantic similarity")
-        candidates = semantic_rerank(candidates, mood, 'description', top_k=5)
+        candidates = semantic_rerank(candidates, enriched_query, 'description', top_k=5)
         for item in candidates:
             score = item.get('similarity_score', 0)
-            item['match_reason'] = f"<b>{int(score*100)}% Match</b> to '{mood}'"
+            display_pct = normalize_score(score)
+            item['match_reason'] = f"<b>{display_pct}% Match</b> to '{mood}'"
 
     logger.info(f"Returning {len(candidates)} video recommendations")
     return candidates, error_msg
