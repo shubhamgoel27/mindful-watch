@@ -342,7 +342,12 @@ def safe_get(item, key, default=None):
     """Safely gets a value from a dict or object."""
     if isinstance(item, dict):
         return item.get(key, default)
-    return getattr(item, key, default)
+    # For objects, use getattr but avoid returning methods
+    result = getattr(item, key, default)
+    # If result is callable (like str.title method), return default instead
+    if callable(result):
+        return default
+    return result
 
 def get_onboarding_content():
     """Fetches mixed content. Tries API -> Caches -> Returns. If API fails, returns Cached/Static."""
