@@ -13,6 +13,7 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from logging_config import logger
 
 # --- Lazy TMDB Setup ---
 def get_tmdb():
@@ -34,6 +35,7 @@ def load_embedding_model():
 @st.cache_resource
 def get_vector_collection():
     """Initializes and returns the persistent ChromaDB collection."""
+    logger.info("Initializing ChromaDB collection...")
     try:
         client = chromadb.PersistentClient(path="./mindful_watch_db")
         
@@ -43,9 +45,11 @@ def get_vector_collection():
         # For simplicity in this demo, we'll generate embeddings manually using our cached model and pass them to Chroma.
         
         collection = client.get_or_create_collection(name="mindful_content")
+        logger.info(f"ChromaDB collection initialized successfully")
         return collection
     except Exception as e:
-        print(f"ChromaDB Init Error: {e}")
+        logger.error(f"ChromaDB Init Error: {type(e).__name__}: {e}")
+        logger.debug(traceback.format_exc())
         return None
 
 def cache_content_to_db(items):
@@ -103,9 +107,10 @@ def cache_content_to_db(items):
                 metadatas=metadatas,
                 documents=documents
             )
-            print(f"Cached {len(ids)} items to Vector DB.")
+            logger.info(f"Cached {len(ids)} items to Vector DB.")
         except Exception as e:
-            print(f"Error caching to ChromaDB: {e}")
+            logger.error(f"Error caching to ChromaDB: {type(e).__name__}: {e}")
+            logger.debug(traceback.format_exc())
 
 def query_vector_db(query_text, n_results=10, where_filter=None):
     """
@@ -154,7 +159,8 @@ def query_vector_db(query_text, n_results=10, where_filter=None):
         return parsed_results
         
     except Exception as e:
-        print(f"Vector Query Error: {e}")
+        logger.error(f"Vector Query Error: {type(e).__name__}: {e}")
+        logger.debug(traceback.format_exc())
         return []
 
 def get_random_cached_content(limit=20):
@@ -267,24 +273,30 @@ def safe_get(item, key, default=None):
 
 def get_onboarding_content():
     """Fetches mixed content. Tries API -> Caches -> Returns. If API fails, returns Cached/Static."""
+    logger.info("Fetching onboarding content...")
     all_content = []
     seen_ids = set()
     
     # 1. Fetch from APIs if keys exist
     if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
+        logger.info("TMDB API key present, fetching movies for onboarding...")
         try:
             init_tmdb()
             discover = Discover()
             genres = [28, 35, 18, 878, 99]
             for g_id in genres:
+                logger.debug(f"TMDB: Discovering movies for genre {g_id}")
                 res = discover.discover_movies({'sort_by': 'popularity.desc', 'with_genres': g_id, 'vote_count.gte': 500, 'page': 1})
                 
                 # Handle raw dict response
+                logger.debug(f"TMDB response type: {type(res).__name__}")
                 if isinstance(res, dict) and 'results' in res: 
                     res = res['results']
                 else:
                     # Convert AsObj/Iterable to list to support slicing
                     res = list(res)
+                
+                logger.debug(f"TMDB: Got {len(res)} results for genre {g_id}")
                 
                 # Iterate and extract safely
                 for m in res[:6]:
@@ -306,12 +318,13 @@ def get_onboarding_content():
                             "poster_path": img, "overview": safe_get(m, 'overview'),
                             "vote_average": safe_get(m, 'vote_average'), "runtime": safe_get(m, 'runtime', 0)
                         })
+            logger.info(f"TMDB: Successfully fetched {len([c for c in all_content if c['type']=='movie'])} movies")
         except Exception as e:
-            print(f"TMDB Onboarding Error: {e}")
-            traceback.print_exc()
+            logger.error(f"TMDB Onboarding Error: {type(e).__name__}: {e}")
+            logger.debug(traceback.format_exc())
 
     if config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
-        # ... fetch youtube ...
+        logger.info("YouTube API key present, fetching videos for onboarding...")
         try:
             youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
             # Use high-signal keywords to filter out "slop"
@@ -324,8 +337,11 @@ def get_onboarding_content():
                 "investigative journalism documentary"
             ]
             for topic in topics:
+                logger.debug(f"YouTube: Searching for '{topic}'")
                 res = youtube.search().list(q=topic, part='id,snippet', maxResults=6, type='video', videoDuration='medium').execute()
-                for item in res.get('items', []):
+                items_found = res.get('items', [])
+                logger.debug(f"YouTube: Got {len(items_found)} results for '{topic}'")
+                for item in items_found:
                     vid_id = item['id']['videoId']
                     if vid_id in seen_ids:
                         continue
@@ -340,45 +356,58 @@ def get_onboarding_content():
                         "overview": item['snippet']['description'], "description": item['snippet']['description'],
                         "duration": "20 mins" # Approx
                     })
+            logger.info(f"YouTube: Successfully fetched {len([c for c in all_content if c['type']=='video'])} videos")
         except Exception as e:
-            print(f"YouTube Onboarding Error: {e}")
+            logger.error(f"YouTube Onboarding Error: {type(e).__name__}: {e}")
+            logger.debug(traceback.format_exc())
 
     # 2. If we got content, Cache It!
     if all_content:
+        logger.info(f"Onboarding: Got {len(all_content)} items from APIs, caching...")
         cache_content_to_db(all_content)
         random.shuffle(all_content)
         return all_content
 
     # 3. If API failed or keys missing, fetch from Cache/Static
+    logger.warning("Onboarding: No API content, trying cached content...")
     cached = get_random_cached_content(limit=30)
     if len(cached) > 5:
+        logger.info(f"Onboarding: Using {len(cached)} cached items")
         return cached
     
     # 4. Fallback to Static Pool (and cache it for next time)
+    logger.warning("Onboarding: Using static fallback pool")
     static = get_static_content_pool()
     cache_content_to_db(static)
     random.shuffle(static)
     return static
 
 def search_person_id(name):
-    # ... (same as before)
+    """Search for a person (actor/director) ID on TMDB."""
     try:
-        if config.TMDB_API_KEY == "YOUR_TMDB_KEY": return None
+        if config.TMDB_API_KEY == "YOUR_TMDB_KEY": 
+            return None
         search = Person()
         res = search.search(name)
-        if res: return res[0].id
-    except: return None
+        if res: 
+            logger.debug(f"Found person ID for '{name}': {res[0].id}")
+            return res[0].id
+    except Exception as e:
+        logger.warning(f"Error searching person '{name}': {type(e).__name__}: {e}")
+        return None
     return None
 
 def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors, max_time, focus_mode, mood):
     """
     Hybrid Search: API -> Cache -> Vector Search fallback.
     """
+    logger.info(f"Fetching movie recommendations - mood: '{mood}', max_time: {max_time}, focus_mode: {focus_mode}")
     api_results = []
     error_msg = None
     
     # A. Try Live API (Recall)
     if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
+        logger.info("TMDB: Starting movie discovery...")
         try:
             init_tmdb()
             discover = Discover()
@@ -386,6 +415,7 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
                 'sort_by': 'popularity.desc', 'vote_average.gte': 6.5,
                 'with_runtime.lte': max_time, 'page': 1
             }
+            logger.debug(f"TMDB: Base query params: {kwargs}")
             # ... Filters ...
             provider_ids = [str(config.PROVIDER_MAP[s]) for s in subscriptions if s in config.PROVIDER_MAP]
             if provider_ids:
@@ -432,23 +462,28 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
                             "match_reason": "Filtered Match"
                         })
         except Exception as e:
-            traceback.print_exc()
+            logger.error(f"TMDB API Error: {type(e).__name__}: {e}")
+            logger.debug(traceback.format_exc())
             error_msg = f"TMDB API Error: {str(e)}"
 
     # B. Cache fresh results if any
     if api_results:
+        logger.info(f"TMDB: Got {len(api_results)} movie results, caching...")
         cache_content_to_db(api_results)
     
     # C. If API failed or yielded 0 results, query Vector DB (Semantic Fallback)
     candidates = api_results
     if not candidates and mood:
         # Search DB for movies
+        logger.info(f"TMDB: No API results, falling back to vector search for mood '{mood}'")
         candidates = query_vector_db(mood, n_results=15, where_filter={"type": "movie"})
         if candidates:
+            logger.info(f"TMDB: Found {len(candidates)} cached movies via vector search")
             error_msg = "Showing similar cached movies (API unavailable/empty)." if error_msg else "Showing semantically similar movies from cache."
     
     # If still empty, use Static Pool
     if not candidates:
+        logger.warning("TMDB: Both API and cache empty, using static fallback")
         pool = [x for x in get_static_content_pool() if x['type'] == 'movie']
         # Can also vector search the static pool if mood exists
         if mood:
@@ -461,25 +496,33 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     # Even if they came from API, we re-rank them here (unless they came from vector search already)
     # The `query_vector_db` already returns sorted by distance, but `api_results` are sorted by popularity.
     if mood and api_results:
+        logger.info(f"Re-ranking {len(candidates)} movies by semantic similarity to '{mood}'")
         # Use our manual re-ranker for the fresh API batch
         candidates = semantic_rerank(candidates, mood, text_key='overview', top_k=10)
         for item in candidates:
             score = item.get('similarity_score', 0)
             item['match_reason'] = f"<b>{int(score*100)}% Match</b> to '{mood}'"
 
+    logger.info(f"Returning {len(candidates[:10])} movie recommendations")
     return candidates[:10], error_msg
 
 def fetch_video_recommendations(mood, max_time_mins=40):
+    logger.info(f"Fetching video recommendations for mood: '{mood}'")
     api_results = []
     error_msg = None
 
     if config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
+        logger.info("YouTube: Starting video search...")
         try:
             youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
             # Query for substantial content
-            res = youtube.search().list(q=f"{mood} deep dive video essay analysis documentary", part='id,snippet', maxResults=15, type='video', videoDuration='long').execute()
+            search_query = f"{mood} deep dive video essay analysis documentary"
+            logger.debug(f"YouTube: Search query: '{search_query}'")
+            res = youtube.search().list(q=search_query, part='id,snippet', maxResults=15, type='video', videoDuration='long').execute()
             
-            for item in res.get('items', []):
+            items_found = res.get('items', [])
+            logger.info(f"YouTube: Got {len(items_found)} results")
+            for item in items_found:
                 thumbs = item['snippet']['thumbnails']
                 thumb_url = thumbs.get('high', thumbs.get('medium', thumbs.get('default')))['url']
                 api_results.append({
@@ -490,26 +533,35 @@ def fetch_video_recommendations(mood, max_time_mins=40):
                     "overview": item['snippet']['description']
                 })
         except Exception as e:
+            logger.error(f"YouTube API Error: {type(e).__name__}: {e}")
+            logger.debug(traceback.format_exc())
             error_msg = f"YouTube API Error: {str(e)}"
 
     if api_results:
+        logger.info(f"YouTube: Caching {len(api_results)} video results")
         cache_content_to_db(api_results)
     
     candidates = api_results
     if not candidates and mood:
+        logger.info(f"YouTube: No API results, falling back to vector search for mood '{mood}'")
         candidates = query_vector_db(mood, n_results=10, where_filter={"type": "video"})
-        if candidates: error_msg = "Showing cached videos."
+        if candidates: 
+            logger.info(f"YouTube: Found {len(candidates)} cached videos")
+            error_msg = "Showing cached videos."
 
     if not candidates:
-         pool = [x for x in get_static_content_pool() if x['type'] == 'video']
-         candidates = pool[:5]
+        logger.warning("YouTube: Both API and cache empty, using static fallback")
+        pool = [x for x in get_static_content_pool() if x['type'] == 'video']
+        candidates = pool[:5]
 
     if mood and api_results:
-         candidates = semantic_rerank(candidates, mood, 'description', top_k=5)
-         for item in candidates:
+        logger.info(f"Re-ranking {len(candidates)} videos by semantic similarity")
+        candidates = semantic_rerank(candidates, mood, 'description', top_k=5)
+        for item in candidates:
             score = item.get('similarity_score', 0)
             item['match_reason'] = f"<b>{int(score*100)}% Match</b> to '{mood}'"
 
+    logger.info(f"Returning {len(candidates)} video recommendations")
     return candidates, error_msg
 
 # Reuse existing re-ranker from previous step
