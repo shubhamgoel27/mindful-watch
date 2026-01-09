@@ -4,6 +4,7 @@ import json
 import os
 import traceback
 import re
+import subprocess
 from collections import Counter
 import chromadb
 from chromadb.utils import embedding_functions
@@ -16,6 +17,14 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from logging_config import logger
+
+# Try to import yt-dlp for quota-free YouTube search
+try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+    logger.warning("yt-dlp not installed. Fallback YouTube search unavailable.")
 
 # --- Lazy TMDB Setup ---
 def get_tmdb():
@@ -266,7 +275,85 @@ def get_random_cached_content(limit=20):
     except:
         return []
 
-# --- User Data Management ---
+# --- yt-dlp YouTube Search (Quota-Free Fallback) ---
+def search_youtube_ytdlp(query, max_results=15):
+    """
+    Search YouTube using yt-dlp (no API quota).
+    This is a fallback when the YouTube Data API quota is exceeded.
+    """
+    if not YT_DLP_AVAILABLE:
+        logger.warning("yt-dlp not available for fallback search")
+        return []
+    
+    logger.info(f"yt-dlp: Searching YouTube for '{query}'")
+    
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,  # Don't download, just get metadata
+            'skip_download': True,
+            'default_search': f'ytsearch{max_results}',  # Limit results
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # ytsearch:query returns search results
+            result = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            
+            if not result or 'entries' not in result:
+                logger.warning("yt-dlp: No results found")
+                return []
+            
+            videos = []
+            for entry in result['entries']:
+                if not entry:
+                    continue
+                    
+                video_id = entry.get('id', '')
+                title = entry.get('title', 'Unknown')
+                description = entry.get('description', '') or ''
+                
+                # Get best thumbnail
+                thumbnails = entry.get('thumbnails', [])
+                thumb_url = ''
+                if thumbnails:
+                    # Prefer high quality thumbnail
+                    for t in reversed(thumbnails):
+                        if t.get('url'):
+                            thumb_url = t['url']
+                            break
+                if not thumb_url:
+                    thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                
+                # Get duration
+                duration_seconds = entry.get('duration')
+                if duration_seconds:
+                    mins = int(duration_seconds // 60)
+                    duration = f"{mins} mins" if mins > 0 else "< 1 min"
+                else:
+                    duration = "Unknown"
+                
+                videos.append({
+                    "id": video_id,
+                    "video_id": video_id,
+                    "title": title,
+                    "description": description,
+                    "overview": description,
+                    "thumbnail": thumb_url,
+                    "poster_path": thumb_url,
+                    "type": "video",
+                    "duration": duration,
+                    "match_reason": "yt-dlp Search"
+                })
+            
+            logger.info(f"yt-dlp: Found {len(videos)} videos")
+            return videos
+            
+    except Exception as e:
+        logger.error(f"yt-dlp search error: {type(e).__name__}: {e}")
+        logger.debug(traceback.format_exc())
+        return []
+
 def load_user_data():
     if not os.path.exists(config.USER_DATA_FILE):
         return {}
@@ -329,25 +416,129 @@ def get_static_content_pool():
     # We'll do that lazily in get_onboarding_content
     return content
 
-# --- Fetch Logic ---
+# --- Direct TMDB API Functions (using requests instead of wrapper) ---
 
-def init_tmdb():
-    """Initializes global TMDB settings from config."""
-    t = TMDb()
-    t.api_key = config.TMDB_API_KEY
-    t.language = 'en'
-    return t
+TMDB_BASE_URL = "https://api.themoviedb.org/3"
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
+
+def fetch_tmdb_discover(params=None, max_pages=2):
+    """
+    Fetch movies from TMDB Discover API using direct requests.
+    Returns list of movie dicts with proper structure.
+    """
+    if not config.TMDB_API_KEY or config.TMDB_API_KEY == "YOUR_TMDB_KEY":
+        logger.warning("TMDB API key not configured")
+        return []
+    
+    all_movies = []
+    base_params = {
+        "api_key": config.TMDB_API_KEY,
+        "language": "en-US",
+        "sort_by": "popularity.desc",
+        "include_adult": "false",
+        "include_video": "false",
+    }
+    
+    if params:
+        base_params.update(params)
+    
+    for page in range(1, max_pages + 1):
+        base_params["page"] = page
+        
+        try:
+            url = f"{TMDB_BASE_URL}/discover/movie"
+            logger.debug(f"TMDB Request: {url} with params: {base_params}")
+            
+            response = requests.get(url, params=base_params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            results = data.get("results", [])
+            
+            logger.debug(f"TMDB page {page}: got {len(results)} movies")
+            
+            for movie in results:
+                # Only include movies with required data
+                movie_id = movie.get("id")
+                title = movie.get("title", "")
+                
+                if not movie_id or not title:
+                    logger.warning(f"TMDB: Skipping invalid movie - id={movie_id}, title={title}")
+                    continue
+                
+                # Build full poster URL
+                poster_path = movie.get("poster_path")
+                full_poster_url = f"{TMDB_IMAGE_BASE}/w500{poster_path}" if poster_path else "https://via.placeholder.com/300x450?text=No+Poster"
+                
+                all_movies.append({
+                    "id": movie_id,
+                    "title": title,
+                    "overview": movie.get("overview", ""),
+                    "poster_path": full_poster_url,
+                    "release_date": movie.get("release_date", "N/A"),
+                    "vote_average": movie.get("vote_average", 0),
+                    "popularity": movie.get("popularity", 0),
+                    "type": "movie"
+                })
+                
+        except requests.RequestException as e:
+            logger.error(f"TMDB API request failed (page {page}): {e}")
+            break
+        except Exception as e:
+            logger.error(f"TMDB parsing error (page {page}): {e}")
+            break
+    
+    logger.info(f"TMDB: Fetched {len(all_movies)} valid movies total")
+    return all_movies
+
+def search_tmdb_person(name):
+    """Search for a person (actor/director) on TMDB and return their ID."""
+    if not config.TMDB_API_KEY or config.TMDB_API_KEY == "YOUR_TMDB_KEY":
+        return None
+    
+    try:
+        url = f"{TMDB_BASE_URL}/search/person"
+        params = {
+            "api_key": config.TMDB_API_KEY,
+            "query": name,
+            "language": "en-US"
+        }
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        results = data.get("results", [])
+        
+        if results:
+            person_id = results[0].get("id")
+            logger.debug(f"Found person '{name}' with ID: {person_id}")
+            return person_id
+        
+    except Exception as e:
+        logger.warning(f"TMDB person search error for '{name}': {e}")
+    
+    return None
 
 def safe_get(item, key, default=None):
-    """Safely gets a value from a dict or object."""
-    if isinstance(item, dict):
-        return item.get(key, default)
-    # For objects, use getattr but avoid returning methods
-    result = getattr(item, key, default)
-    # If result is callable (like str.title method), return default instead
-    if callable(result):
-        return default
-    return result
+    """
+    Safely gets a value from a dict or object.
+    Handles TMDB's AsObj type which is dict-like but not isinstance(dict).
+    """
+    # First, try dict-style access (covers dict and dict-like objects like AsObj)
+    if hasattr(item, 'get'):
+        result = item.get(key, default)
+        if result is not None:
+            return result
+    
+    # Fallback to attribute access
+    if hasattr(item, key):
+        result = getattr(item, key, default)
+        # Filter out methods (e.g., str.title on a string object)
+        if callable(result) and not isinstance(result, (str, int, float, bool, list, dict)):
+            return default
+        return result
+    
+    return default
 
 def get_onboarding_content():
     """Fetches mixed content. Tries API -> Caches -> Returns. If API fails, returns Cached/Static."""
@@ -355,51 +546,34 @@ def get_onboarding_content():
     all_content = []
     seen_ids = set()
     
-    # 1. Fetch from APIs if keys exist
+    # 1. Fetch movies from TMDB using direct API
     if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
         logger.info("TMDB API key present, fetching movies for onboarding...")
-        try:
-            init_tmdb()
-            discover = Discover()
-            genres = [28, 35, 18, 878, 99]
-            for g_id in genres:
-                logger.debug(f"TMDB: Discovering movies for genre {g_id}")
-                res = discover.discover_movies({'sort_by': 'popularity.desc', 'with_genres': g_id, 'vote_count.gte': 500, 'page': 1})
+        genres = [28, 35, 18, 878, 99]  # Action, Comedy, Drama, Sci-Fi, Documentary
+        
+        for g_id in genres:
+            movies = fetch_tmdb_discover(
+                params={"with_genres": g_id, "vote_count.gte": 500},
+                max_pages=1
+            )
+            
+            for movie in movies[:6]:  # Take top 6 per genre
+                mid_str = str(movie["id"])
+                if mid_str in seen_ids:
+                    continue
                 
-                # Handle raw dict response
-                logger.debug(f"TMDB response type: {type(res).__name__}")
-                if isinstance(res, dict) and 'results' in res: 
-                    res = res['results']
-                else:
-                    # Convert AsObj/Iterable to list to support slicing
-                    res = list(res)
-                
-                logger.debug(f"TMDB: Got {len(res)} results for genre {g_id}")
-                
-                # Iterate and extract safely
-                for m in res[:6]:
-                    mid = safe_get(m, 'id')
-                    mid_str = str(mid)
-                    
-                    if mid_str in seen_ids:
-                        continue
-                        
-                    poster_path = safe_get(m, 'poster_path')
-                    title = safe_get(m, 'title')
-                    
-                    img = f"https://image.tmdb.org/t/p/w300{poster_path}" if poster_path else "https://via.placeholder.com/300x450?text=No+Image"
-                    
-                    if mid and title: # Ensure essential fields exist
-                        seen_ids.add(mid_str)
-                        all_content.append({
-                            "id": mid_str, "title": title, "type": "movie",
-                            "poster_path": img, "overview": safe_get(m, 'overview'),
-                            "vote_average": safe_get(m, 'vote_average'), "runtime": safe_get(m, 'runtime', 0)
-                        })
-            logger.info(f"TMDB: Successfully fetched {len([c for c in all_content if c['type']=='movie'])} movies")
-        except Exception as e:
-            logger.error(f"TMDB Onboarding Error: {type(e).__name__}: {e}")
-            logger.debug(traceback.format_exc())
+                seen_ids.add(mid_str)
+                all_content.append({
+                    "id": mid_str,
+                    "title": movie["title"],
+                    "type": "movie",
+                    "poster_path": movie["poster_path"],
+                    "overview": movie.get("overview", ""),
+                    "vote_average": movie.get("vote_average", 0),
+                    "runtime": 0  # Discover endpoint doesn't return runtime
+                })
+        
+        logger.info(f"TMDB: Successfully fetched {len([c for c in all_content if c['type']=='movie'])} movies")
 
     if config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
         logger.info("YouTube API key present, fetching videos for onboarding...")
@@ -493,66 +667,57 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     api_results = []
     error_msg = None
     
-    # A. Try Live API (Recall)
+    # A. Try Live API using direct requests
     if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
         logger.info("TMDB: Starting movie discovery...")
-        try:
-            init_tmdb()
-            discover = Discover()
-            kwargs = {
-                'sort_by': 'popularity.desc', 'vote_average.gte': 6.5,
-                'with_runtime.lte': max_time, 'page': 1
-            }
-            logger.debug(f"TMDB: Base query params: {kwargs}")
-            # ... Filters ...
-            provider_ids = [str(config.PROVIDER_MAP[s]) for s in subscriptions if s in config.PROVIDER_MAP]
-            if provider_ids:
-                kwargs['with_watch_providers'] = '|'.join(provider_ids); kwargs['watch_region'] = 'US'
-            
-            people_ids = []
-            if actors: 
-                for a in actors.split(','): 
-                    pid = search_person_id(a.strip())
-                    if pid: people_ids.append(str(pid))
-            if directors:
-                for d in directors.split(','):
-                    pid = search_person_id(d.strip())
-                    if pid: people_ids.append(str(pid))
-            if people_ids: kwargs['with_people'] = '|'.join(people_ids)
-            if focus_mode: kwargs['with_genres'] = ','.join([str(g) for g in config.FOCUS_GENRES])
-
-            # Fetch 2 pages
-            for page in [1, 2]:
-                kwargs['page'] = page
-                res = discover.discover_movies(kwargs)
-                if isinstance(res, dict) and 'results' in res: 
-                    res = res['results']
-                else:
-                    res = list(res)
-                
-                watched_list = [w.strip().lower() for w in watched_movies.split(',')]
-                
-                for m in res:
-                    title_str = str(safe_get(m, 'title', ''))
-                    if title_str.lower() not in watched_list:
-                        poster_path = safe_get(m, 'poster_path')
-                        img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/300x450?text=No+Poster"
-                        
-                        api_results.append({
-                            "title": title_str, 
-                            "overview": str(safe_get(m, 'overview', '')),
-                            "release_date": safe_get(m, 'release_date', 'N/A'),
-                            "vote_average": safe_get(m, 'vote_average', 0),
-                            "runtime": safe_get(m, 'runtime', 'N/A'),
-                            "poster_path": img_url, 
-                            "id": safe_get(m, 'id', 0),
-                            "type": "movie", 
-                            "match_reason": "Filtered Match"
-                        })
-        except Exception as e:
-            logger.error(f"TMDB API Error: {type(e).__name__}: {e}")
-            logger.debug(traceback.format_exc())
-            error_msg = f"TMDB API Error: {str(e)}"
+        
+        # Build params
+        params = {
+            "vote_average.gte": 6.5,
+            "with_runtime.lte": max_time,
+        }
+        
+        # Provider filter
+        provider_ids = [str(config.PROVIDER_MAP[s]) for s in subscriptions if s in config.PROVIDER_MAP]
+        if provider_ids:
+            params["with_watch_providers"] = "|".join(provider_ids)
+            params["watch_region"] = "US"
+        
+        # Actor/Director filter using new search function
+        people_ids = []
+        if actors:
+            for a in actors.split(","):
+                pid = search_tmdb_person(a.strip())
+                if pid:
+                    people_ids.append(str(pid))
+        if directors:
+            for d in directors.split(","):
+                pid = search_tmdb_person(d.strip())
+                if pid:
+                    people_ids.append(str(pid))
+        if people_ids:
+            params["with_people"] = "|".join(people_ids)
+        
+        # Focus mode genres
+        if focus_mode:
+            params["with_genres"] = ",".join([str(g) for g in config.FOCUS_GENRES])
+        
+        # Fetch movies using direct API
+        movies = fetch_tmdb_discover(params=params, max_pages=2)
+        
+        # Filter out watched movies
+        watched_list = [w.strip().lower() for w in watched_movies.split(",") if w.strip()]
+        
+        for movie in movies:
+            if movie["title"].lower() not in watched_list:
+                movie["match_reason"] = "Filtered Match"
+                movie["runtime"] = "N/A"  # Discover doesn't return runtime
+                api_results.append(movie)
+        
+        logger.info(f"TMDB: Extracted {len(api_results)} valid movies after filtering")
+    
+    if not api_results:
+        error_msg = "TMDB API returned no results"
 
     # B. Cache fresh results if any
     if api_results:
@@ -596,16 +761,42 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     return candidates[:10], error_msg
 
 def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
-    # Build enriched query from user's liked content
-    enriched_query = mood
-    if liked_content and mood:
+    # Build enriched query
+    enriched_query = ""
+    liked_titles = []
+    
+    if liked_content:
         liked_titles, onboarding_content = liked_content
         keywords = extract_user_keywords(liked_titles, onboarding_content)
-        if keywords:
-            enriched_query = f"{mood} {keywords}"
-            logger.info(f"Video enriched query: '{enriched_query}'")
+        
+        if mood:
+            # Mood + Keywords (limit keywords to avoid query bloat)
+            enriched_query = f"{mood} {keywords}" if keywords else mood
+        else:
+            # No Mood -> Use ONLY keywords (not full titles which are too long/specific)
+            if keywords:
+                enriched_query = keywords
+                logger.info(f"No mood provided. Using extracted keywords: '{enriched_query}'")
+            elif liked_titles:
+                # Fallback: use just the first liked title (truncated)
+                first_title = liked_titles[0][:50] if liked_titles else ""
+                enriched_query = first_title
+                logger.info(f"No mood or keywords. Using first liked title: '{enriched_query}'")
+    else:
+        enriched_query = mood if mood else ""
     
-    logger.info(f"Fetching video recommendations for mood: '{mood}'")
+    # Generic fallback if absolutely nothing provided
+    if not enriched_query:
+        enriched_query = "educational documentary video essay"
+        logger.info("No mood or liked content - using generic fallback query")
+    
+    # Limit query length to avoid YouTube API issues with overly specific queries
+    MAX_QUERY_LENGTH = 100
+    if len(enriched_query) > MAX_QUERY_LENGTH:
+        enriched_query = enriched_query[:MAX_QUERY_LENGTH].rsplit(' ', 1)[0]
+        logger.info(f"Truncated query to {len(enriched_query)} chars: '{enriched_query}'")
+    
+    logger.info(f"Fetching video recommendations for query: '{enriched_query}'")
     api_results = []
     error_msg = None
 
@@ -613,8 +804,9 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
         logger.info("YouTube: Starting video search...")
         try:
             youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
-            # Query for substantial content
-            search_query = f"{mood} deep dive video essay analysis documentary"
+            # Use the enriched query directly - it already has relevant keywords
+            # Adding more terms would make the query too specific
+            search_query = enriched_query
             logger.debug(f"YouTube: Search query: '{search_query}'")
             res = youtube.search().list(q=search_query, part='id,snippet', maxResults=15, type='video', videoDuration='long').execute()
             
@@ -634,31 +826,50 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
             logger.error(f"YouTube API Error: {type(e).__name__}: {e}")
             logger.debug(traceback.format_exc())
             error_msg = f"YouTube API Error: {str(e)}"
+            
+            # Check if this is a quota error - if so, try yt-dlp fallback
+            if 'quota' in str(e).lower() or '403' in str(e):
+                logger.info("YouTube API quota exceeded, trying yt-dlp fallback...")
+                api_results = search_youtube_ytdlp(enriched_query, max_results=15)
+                if api_results:
+                    error_msg = None  # Clear error since yt-dlp worked
 
     if api_results:
         logger.info(f"YouTube: Caching {len(api_results)} video results")
         cache_content_to_db(api_results)
     
     candidates = api_results
-    if not candidates and mood:
-        logger.info(f"YouTube: No API results, falling back to vector search for mood '{mood}'")
-        candidates = query_vector_db(mood, n_results=10, where_filter={"type": "video"})
+    
+    # If no API results, try yt-dlp as first fallback (if not already tried)
+    if not candidates and enriched_query and YT_DLP_AVAILABLE:
+        logger.info(f"YouTube: No API results, trying yt-dlp fallback for query '{enriched_query}'")
+        candidates = search_youtube_ytdlp(enriched_query, max_results=15)
+        if candidates:
+            logger.info(f"yt-dlp: Found {len(candidates)} videos")
+            cache_content_to_db(candidates)
+            error_msg = "Using yt-dlp search (API unavailable)."
+    
+    # If still no results, try vector search on cached content
+    if not candidates and enriched_query:
+        logger.info(f"YouTube: Falling back to vector search for query '{enriched_query}'")
+        candidates = query_vector_db(enriched_query, n_results=10, where_filter={"type": "video"})
         if candidates: 
             logger.info(f"YouTube: Found {len(candidates)} cached videos")
             error_msg = "Showing cached videos."
 
     if not candidates:
-        logger.warning("YouTube: Both API and cache empty, using static fallback")
+        logger.warning("YouTube: All methods failed, using static fallback")
         pool = [x for x in get_static_content_pool() if x['type'] == 'video']
         candidates = pool[:5]
 
-    if mood and api_results:
+    if enriched_query and api_results:
         logger.info(f"Re-ranking {len(candidates)} videos by semantic similarity")
         candidates = semantic_rerank(candidates, enriched_query, 'description', top_k=5)
+        display_query = mood if mood else "your preferences"
         for item in candidates:
             score = item.get('similarity_score', 0)
             display_pct = normalize_score(score)
-            item['match_reason'] = f"<b>{display_pct}% Match</b> to '{mood}'"
+            item['match_reason'] = f"<b>{display_pct}% Match</b> to '{display_query}'"
 
     logger.info(f"Returning {len(candidates)} video recommendations")
     return candidates, error_msg

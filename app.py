@@ -201,30 +201,26 @@ def show_dashboard():
         st.session_state.submitted = True
         st.session_state.api_errors = [] # Reset errors
         
-        with st.spinner("Analyzing semantic matches & curating your mix..."):
+        with st.spinner("Analyzing semantic matches & curating your videos..."):
             # Build liked_content tuple from session state for query enrichment
             liked_titles = st.session_state.user_data.get('liked_movies_onboarding', [])
             onboarding_content = st.session_state.get('onboarding_movies', [])
             liked_content = (liked_titles, onboarding_content) if liked_titles else None
             
-            # Fetch Movies
-            movies, m_err = utils.fetch_movie_recommendations(
-                subscriptions, watched_movies, liked_actors, liked_directors, max_watch_time, focus_mode, mood_goal,
+            # Build search query: use mood if provided, otherwise empty (utils will handle fallback)
+            search_query = mood_goal if mood_goal else ""
+            
+            # No longer fetching movies - only videos
+            st.session_state.recommendations['movies'] = []
+            
+            # Fetch Videos (always, not just when focus_mode)
+            videos, v_err = utils.fetch_video_recommendations(
+                search_query,
+                max_time_mins=max_watch_time,
                 liked_content=liked_content
             )
-            st.session_state.recommendations['movies'] = movies
-            if m_err: st.session_state.api_errors.append(m_err)
-
-            # Fetch Videos
-            if focus_mode:
-                videos, v_err = utils.fetch_video_recommendations(
-                    mood_goal if mood_goal else "interesting",
-                    liked_content=liked_content
-                )
-                st.session_state.recommendations['videos'] = videos
-                if v_err: st.session_state.api_errors.append(v_err)
-            else:
-                st.session_state.recommendations['videos'] = []
+            st.session_state.recommendations['videos'] = videos
+            if v_err: st.session_state.api_errors.append(v_err)
 
     st.title("MindfulWatch Recommender 🎬")
     
