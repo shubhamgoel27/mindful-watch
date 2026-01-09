@@ -34,13 +34,23 @@ def get_tmdb():
     t.language = 'en'
     return t
 
-# --- Model Loading (Cached) ---
-@st.cache_resource
+# --- Model Loading (Singleton) ---
+# Use a module-level singleton to avoid reloading the model on every call
+# This works both in Streamlit (with st.cache_resource) and standalone scripts
+
+_embedding_model = None
+
 def load_embedding_model():
-    """Loads the lightweight SentenceTransformer model."""
-    # We use this for manual encoding if needed, though Chroma handles it too.
-    # To keep it consistent across the app, we'll use this model instance.
-    return SentenceTransformer('all-MiniLM-L6-v2')
+    """
+    Loads the lightweight SentenceTransformer model.
+    Uses a singleton pattern to load only once per process.
+    """
+    global _embedding_model
+    if _embedding_model is None:
+        logger.info("Loading embedding model (first time)...")
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Embedding model loaded successfully")
+    return _embedding_model
 
 # --- Score Normalization ---
 def normalize_score(raw_score, min_raw=0.0, max_raw=0.35):
