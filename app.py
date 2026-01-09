@@ -8,6 +8,75 @@ except ImportError:
 import streamlit as st
 import utils
 import config
+from logging_config import logger
+
+# --- Startup Database Seeding ---
+# Seeds the database on first load if it's sparse (< 200 items)
+# This ensures cloud deployments always have content
+@st.cache_resource(show_spinner="🌱 Seeding database with content...")
+def initialize_database():
+    """
+    Seeds the database on app startup if it's sparse.
+    Uses @st.cache_resource to only run once per deployment.
+    """
+    from seed_config import ESSENTIAL_VIDEO_QUERIES, ESSENTIAL_TMDB_GENRES, MIN_DB_SIZE
+    
+    # Check current DB size
+    collection = utils.get_vector_collection()
+    if collection:
+        try:
+            result = collection.get()
+            current_size = len(result.get("ids", []))
+            logger.info(f"Database check: {current_size} items")
+            
+            if current_size >= MIN_DB_SIZE:
+                logger.info(f"Database already has {current_size} items, skipping seeding")
+                return {"status": "skipped", "size": current_size}
+        except Exception as e:
+            logger.warning(f"Could not check DB size: {e}")
+            current_size = 0
+    else:
+        current_size = 0
+    
+    logger.info(f"Database sparse ({current_size} items), starting seeding...")
+    
+    # Seed movies from TMDB
+    movies_added = 0
+    if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
+        for genre_id, genre_name in ESSENTIAL_TMDB_GENRES.items():
+            try:
+                movies = utils.fetch_tmdb_discover(
+                    params={"with_genres": genre_id, "vote_count.gte": 100},
+                    max_pages=1
+                )
+                for movie in movies[:10]:  # 10 per genre = ~80 movies
+                    movie["type"] = "movie"
+                utils.cache_content_to_db(movies[:10])
+                movies_added += min(10, len(movies))
+                logger.debug(f"Seeded {genre_name}: {min(10, len(movies))} movies")
+            except Exception as e:
+                logger.warning(f"Failed to seed {genre_name}: {e}")
+    
+    # Seed videos using yt-dlp (no quota limits!)
+    videos_added = 0
+    if utils.YT_DLP_AVAILABLE:
+        for query in ESSENTIAL_VIDEO_QUERIES[:30]:  # First 30 queries for speed
+            try:
+                videos = utils.search_youtube_ytdlp(query, max_results=5)
+                if videos:
+                    utils.cache_content_to_db(videos)
+                    videos_added += len(videos)
+                    logger.debug(f"Seeded '{query}': {len(videos)} videos")
+            except Exception as e:
+                logger.warning(f"Failed to seed '{query}': {e}")
+    
+    total_added = movies_added + videos_added
+    logger.info(f"Database seeding complete: +{movies_added} movies, +{videos_added} videos")
+    
+    return {"status": "seeded", "movies": movies_added, "videos": videos_added}
+
+# Initialize database on startup
+_db_init_result = initialize_database()
 
 st.set_page_config(page_title="MindfulWatch Recommender v1.1", layout="wide", page_icon="🧘")
 
