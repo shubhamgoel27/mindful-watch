@@ -551,12 +551,34 @@ def safe_get(item, key, default=None):
     return default
 
 def get_onboarding_content():
-    """Fetches mixed content. Tries API -> Caches -> Returns. If API fails, returns Cached/Static."""
+    """
+    Fetches mixed content for onboarding.
+    PRIORITY: Cached DB content (randomized) -> Fresh API content -> Static fallback.
+    This ensures variety across sessions by sampling randomly from the full database.
+    """
     logger.info("Fetching onboarding content...")
+    
+    # 1. FIRST: Try to get random content from the cached database (most variety)
+    cached = get_random_cached_content(limit=60)  # Get more for better mix
+    if len(cached) >= 20:
+        # We have enough cached content - use it for variety
+        # Ensure good mix of movies and videos
+        movies = [c for c in cached if c.get('type') == 'movie']
+        videos = [c for c in cached if c.get('type') == 'video']
+        
+        # Take balanced mix
+        random.shuffle(movies)
+        random.shuffle(videos)
+        balanced = movies[:15] + videos[:15]  # 15 of each
+        random.shuffle(balanced)
+        
+        logger.info(f"Onboarding: Using {len(balanced)} cached items ({len(movies[:15])} movies, {len(videos[:15])} videos)")
+        return balanced
+    
+    # 2. If cache is sparse, fetch fresh content from APIs
     all_content = []
     seen_ids = set()
     
-    # 1. Fetch movies from TMDB using direct API
     if config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY":
         logger.info("TMDB API key present, fetching movies for onboarding...")
         genres = [28, 35, 18, 878, 99]  # Action, Comedy, Drama, Sci-Fi, Documentary
@@ -567,7 +589,7 @@ def get_onboarding_content():
                 max_pages=1
             )
             
-            for movie in movies[:6]:  # Take top 6 per genre
+            for movie in movies[:6]:
                 mid_str = str(movie["id"])
                 if mid_str in seen_ids:
                     continue
@@ -580,64 +602,38 @@ def get_onboarding_content():
                     "poster_path": movie["poster_path"],
                     "overview": movie.get("overview", ""),
                     "vote_average": movie.get("vote_average", 0),
-                    "runtime": 0  # Discover endpoint doesn't return runtime
+                    "runtime": 0
                 })
         
         logger.info(f"TMDB: Successfully fetched {len([c for c in all_content if c['type']=='movie'])} movies")
 
-    if config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
-        logger.info("YouTube API key present, fetching videos for onboarding...")
-        try:
-            youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
-            # Use high-signal keywords to filter out "slop"
-            topics = [
-                "deep dive video essay", 
-                "full history documentary", 
-                "philosophy analysis", 
-                "advanced science visualised", 
-                "cinema critique video essay",
-                "investigative journalism documentary"
-            ]
-            for topic in topics:
-                logger.debug(f"YouTube: Searching for '{topic}'")
-                res = youtube.search().list(q=topic, part='id,snippet', maxResults=6, type='video', videoDuration='medium').execute()
-                items_found = res.get('items', [])
-                logger.debug(f"YouTube: Got {len(items_found)} results for '{topic}'")
-                for item in items_found:
-                    vid_id = item['id']['videoId']
-                    if vid_id in seen_ids:
-                        continue
-                        
-                    thumbs = item['snippet']['thumbnails']
-                    thumb_url = thumbs.get('high', thumbs.get('medium', thumbs.get('default')))['url']
-                    
+    # Try yt-dlp for videos (more reliable than YouTube API)
+    if YT_DLP_AVAILABLE:
+        logger.info("Fetching videos via yt-dlp for onboarding...")
+        topics = [
+            "deep dive video essay",
+            "full history documentary",
+            "philosophy analysis",
+            "science documentary",
+            "cinema critique"
+        ]
+        for topic in topics:
+            videos = search_youtube_ytdlp(topic, max_results=5)
+            for v in videos:
+                vid_id = v.get('video_id') or v.get('id')
+                if vid_id and vid_id not in seen_ids:
                     seen_ids.add(vid_id)
-                    all_content.append({
-                        "id": vid_id, "title": item['snippet']['title'], "type": "video",
-                        "poster_path": thumb_url, "thumbnail": thumb_url, "video_id": vid_id,
-                        "overview": item['snippet']['description'], "description": item['snippet']['description'],
-                        "duration": "20 mins" # Approx
-                    })
-            logger.info(f"YouTube: Successfully fetched {len([c for c in all_content if c['type']=='video'])} videos")
-        except Exception as e:
-            logger.error(f"YouTube Onboarding Error: {type(e).__name__}: {e}")
-            logger.debug(traceback.format_exc())
+                    all_content.append(v)
+        logger.info(f"yt-dlp: Successfully fetched {len([c for c in all_content if c['type']=='video'])} videos")
 
-    # 2. If we got content, Cache It!
+    # Cache whatever we got
     if all_content:
         logger.info(f"Onboarding: Got {len(all_content)} items from APIs, caching...")
         cache_content_to_db(all_content)
         random.shuffle(all_content)
         return all_content
 
-    # 3. If API failed or keys missing, fetch from Cache/Static
-    logger.warning("Onboarding: No API content, trying cached content...")
-    cached = get_random_cached_content(limit=30)
-    if len(cached) > 5:
-        logger.info(f"Onboarding: Using {len(cached)} cached items")
-        return cached
-    
-    # 4. Fallback to Static Pool (and cache it for next time)
+    # 3. Last resort: Static Pool
     logger.warning("Onboarding: Using static fallback pool")
     static = get_static_content_pool()
     cache_content_to_db(static)
@@ -739,7 +735,7 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     if not candidates and mood:
         # Search DB for movies
         logger.info(f"TMDB: No API results, falling back to vector search for mood '{mood}'")
-        candidates = query_vector_db(mood, n_results=15, where_filter={"type": "movie"})
+        candidates = query_vector_db(mood, n_results=50, where_filter={"type": "movie"})
         if candidates:
             logger.info(f"TMDB: Found {len(candidates)} cached movies via vector search")
             error_msg = "Showing similar cached movies (API unavailable/empty)." if error_msg else "Showing semantically similar movies from cache."
@@ -750,7 +746,7 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
         pool = [x for x in get_static_content_pool() if x['type'] == 'movie']
         # Can also vector search the static pool if mood exists
         if mood:
-            candidates = query_vector_db(mood, n_results=5, where_filter={"type": "movie"}) or pool[:5]
+            candidates = query_vector_db(mood, n_results=50, where_filter={"type": "movie"}) or pool[:50]
         else:
             candidates = pool[:5]
         if not error_msg: error_msg = "No matches found. Showing popular fallback content."
@@ -761,14 +757,14 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     if mood and api_results:
         logger.info(f"Re-ranking {len(candidates)} movies by semantic similarity to '{enriched_query}'")
         # Use our manual re-ranker for the fresh API batch
-        candidates = semantic_rerank(candidates, enriched_query, text_key='overview', top_k=10)
+        candidates = semantic_rerank(candidates, enriched_query, text_key='overview', top_k=50)
         for item in candidates:
             score = item.get('similarity_score', 0)
             display_pct = normalize_score(score)
             item['match_reason'] = f"<b>{display_pct}% Match</b> to '{mood}'"
 
-    logger.info(f"Returning {len(candidates[:10])} movie recommendations")
-    return candidates[:10], error_msg
+    logger.info(f"Returning {len(candidates[:50])} movie recommendations")
+    return candidates[:50], error_msg
 
 def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
     # Build enriched query
@@ -853,7 +849,7 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
     # If no API results, try yt-dlp as first fallback (if not already tried)
     if not candidates and enriched_query and YT_DLP_AVAILABLE:
         logger.info(f"YouTube: No API results, trying yt-dlp fallback for query '{enriched_query}'")
-        candidates = search_youtube_ytdlp(enriched_query, max_results=15)
+        candidates = search_youtube_ytdlp(enriched_query, max_results=50)
         if candidates:
             logger.info(f"yt-dlp: Found {len(candidates)} videos")
             cache_content_to_db(candidates)
@@ -862,7 +858,7 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
     # If still no results, try vector search on cached content
     if not candidates and enriched_query:
         logger.info(f"YouTube: Falling back to vector search for query '{enriched_query}'")
-        candidates = query_vector_db(enriched_query, n_results=10, where_filter={"type": "video"})
+        candidates = query_vector_db(enriched_query, n_results=50, where_filter={"type": "video"})
         if candidates: 
             logger.info(f"YouTube: Found {len(candidates)} cached videos")
             error_msg = "Showing cached videos."
@@ -870,12 +866,17 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
     if not candidates:
         logger.warning("YouTube: All methods failed, using static fallback")
         pool = [x for x in get_static_content_pool() if x['type'] == 'video']
-        candidates = pool[:5]
+        candidates = pool[:50]
 
-    if enriched_query and api_results:
+    if enriched_query and candidates:
         logger.info(f"Re-ranking {len(candidates)} videos by semantic similarity")
-        candidates = semantic_rerank(candidates, enriched_query, 'description', top_k=5)
-        display_query = mood if mood else "your preferences"
+        candidates = semantic_rerank(candidates, enriched_query, 'description', top_k=50)
+        # Use mood if provided, otherwise use a cleaner description
+        if mood:
+            display_query = mood
+        else:
+            # Don't show "your preferences" - instead show what we actually searched for
+            display_query = enriched_query[:30] + "..." if len(enriched_query) > 30 else enriched_query
         for item in candidates:
             score = item.get('similarity_score', 0)
             display_pct = normalize_score(score)
