@@ -77,17 +77,18 @@ STOPWORDS = {
     'once', 'their', 'them', 'his', 'her', 'him', 'your', 'our', 'my', 'can', 'get'
 }
 
-def extract_user_keywords(liked_titles, onboarding_content, top_k=8):
+def extract_user_keywords(liked_titles, onboarding_content, top_k=3):
     """
-    Extract top keywords from user's liked content to enrich search queries.
+    Extract TOP keywords only (not all) - quality over quantity.
+    Used for simple keyword-based search queries.
     
     Args:
         liked_titles: List of titles the user liked during onboarding
         onboarding_content: List of content dicts with title, overview/description
-        top_k: Number of top keywords to extract
+        top_k: Number of top keywords to extract (default: 3 for focused queries)
     
     Returns:
-        String of top keywords joined by spaces
+        String of top keywords joined by spaces (max ~3-5 words)
     """
     if not liked_titles or not onboarding_content:
         return ""
@@ -117,11 +118,55 @@ def extract_user_keywords(liked_titles, onboarding_content, top_k=8):
     # Count frequencies
     word_counts = Counter(filtered_words)
     
-    # Get top keywords
+    # Get top keywords - limit to top_k for focused search
     top_keywords = [word for word, count in word_counts.most_common(top_k)]
     
-    logger.debug(f"Extracted keywords from {len(liked_titles)} liked items: {top_keywords}")
+    logger.debug(f"Extracted {len(top_keywords)} keywords from {len(liked_titles)} liked items: {top_keywords}")
     return " ".join(top_keywords)
+
+
+def create_user_profile_embedding(liked_titles, onboarding_content):
+    """
+    Create a semantic embedding representing user preferences.
+    This is used for RERANKING (not for keyword search).
+    
+    Combines the descriptions of all liked content into a single
+    embedding that captures the user's overall interests.
+    
+    Returns:
+        numpy array: User profile embedding vector, or None if no data
+    """
+    if not liked_titles or not onboarding_content:
+        return None
+    
+    # Build a lookup for content by title
+    content_by_title = {item.get('title', ''): item for item in onboarding_content}
+    
+    # Collect descriptions from liked content
+    texts = []
+    for title in liked_titles:
+        if title in content_by_title:
+            item = content_by_title[title]
+            desc = item.get('overview', '') or item.get('description', '')
+            if desc:
+                texts.append(desc)
+    
+    if not texts:
+        return None
+    
+    # Combine all descriptions into one text for embedding
+    combined = " ".join(texts)
+    
+    # Truncate if too long (embedding models have limits)
+    max_chars = 2000
+    if len(combined) > max_chars:
+        combined = combined[:max_chars]
+    
+    model = load_embedding_model()
+    embedding = model.encode([combined])[0]
+    
+    logger.debug(f"Created user profile embedding from {len(texts)} liked items")
+    return embedding
 
 # --- Vector Database Setup (ChromaDB) ---
 @st.cache_resource
@@ -767,123 +812,128 @@ def fetch_movie_recommendations(subscriptions, watched_movies, actors, directors
     return candidates[:50], error_msg
 
 def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
-    # Build enriched query
-    enriched_query = ""
+    """
+    Two-stage retrieval + reranking for personalized video recommendations.
+    
+    Stage 1: RETRIEVAL (high recall)
+    - Use mood as primary search query (clearest user intent signal)
+    - Or use top 3-5 keywords if no mood
+    - Multi-channel: yt-dlp + vector DB for diversity
+    
+    Stage 2: RERANKING (high precision)  
+    - Two-factor scoring: profile similarity + mood similarity
+    - Transparent match reasons showing both factors
+    """
+    logger.info(f"Fetching video recommendations. Mood: '{mood}'")
+    
+    # === PREPARE SIGNALS ===
+    search_query = ""
+    user_profile_embedding = None
     liked_titles = []
+    onboarding_content = []
     
     if liked_content:
         liked_titles, onboarding_content = liked_content
-        keywords = extract_user_keywords(liked_titles, onboarding_content)
-        
-        if mood:
-            # Mood + Keywords (limit keywords to avoid query bloat)
-            enriched_query = f"{mood} {keywords}" if keywords else mood
-        else:
-            # No Mood -> Use ONLY keywords (not full titles which are too long/specific)
-            if keywords:
-                enriched_query = keywords
-                logger.info(f"No mood provided. Using extracted keywords: '{enriched_query}'")
-            elif liked_titles:
-                # Fallback: use just the first liked title (truncated)
-                first_title = liked_titles[0][:50] if liked_titles else ""
-                enriched_query = first_title
-                logger.info(f"No mood or keywords. Using first liked title: '{enriched_query}'")
+        # Create user profile embedding for reranking (captures overall preferences)
+        user_profile_embedding = create_user_profile_embedding(liked_titles, onboarding_content)
+        # Extract only top 3 keywords for focused search
+        search_keywords = extract_user_keywords(liked_titles, onboarding_content, top_k=3)
+        logger.debug(f"User profile: {len(liked_titles)} liked items, keywords: '{search_keywords}'")
     else:
-        enriched_query = mood if mood else ""
+        search_keywords = ""
     
-    # Generic fallback if absolutely nothing provided
-    if not enriched_query:
-        enriched_query = "educational documentary video essay"
-        logger.info("No mood or liked content - using generic fallback query")
+    # === STAGE 1: RETRIEVAL ===
+    # Priority: mood > keywords > generic fallback
+    # Use mood as primary search query - it's the clearest signal of current intent
+    if mood:
+        search_query = mood  # Use mood directly (e.g., "relaxing", "learn science")
+        logger.info(f"Stage 1: Searching by mood: '{search_query}'")
+    elif search_keywords:
+        search_query = search_keywords  # Fallback to extracted keywords
+        logger.info(f"Stage 1: Searching by keywords: '{search_query}'")
+    else:
+        search_query = "documentary video essay"  # Generic fallback
+        logger.info(f"Stage 1: Using generic fallback query: '{search_query}'")
     
-    # Limit query length to avoid YouTube API issues with overly specific queries
-    MAX_QUERY_LENGTH = 100
-    if len(enriched_query) > MAX_QUERY_LENGTH:
-        enriched_query = enriched_query[:MAX_QUERY_LENGTH].rsplit(' ', 1)[0]
-        logger.info(f"Truncated query to {len(enriched_query)} chars: '{enriched_query}'")
-    
-    logger.info(f"Fetching video recommendations for query: '{enriched_query}'")
-    api_results = []
+    candidates = []
     error_msg = None
-
-    if config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
-        logger.info("YouTube: Starting video search...")
+    
+    # Try yt-dlp first (no quota limits)
+    if YT_DLP_AVAILABLE:
+        logger.info(f"yt-dlp: Searching for '{search_query}'")
+        yt_results = search_youtube_ytdlp(search_query, max_results=30)
+        if yt_results:
+            candidates.extend(yt_results)
+            logger.info(f"yt-dlp: Got {len(yt_results)} results")
+    
+    # Try YouTube API as backup
+    if len(candidates) < 20 and config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
+        logger.info("YouTube API: Supplementing with API results...")
         try:
             youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
-            # Use the enriched query directly - it already has relevant keywords
-            # Adding more terms would make the query too specific
-            search_query = enriched_query
-            logger.debug(f"YouTube: Search query: '{search_query}'")
-            res = youtube.search().list(q=search_query, part='id,snippet', maxResults=15, type='video', videoDuration='long').execute()
+            res = youtube.search().list(
+                q=search_query, part='id,snippet', 
+                maxResults=20, type='video', videoDuration='long'
+            ).execute()
             
-            items_found = res.get('items', [])
-            logger.info(f"YouTube: Got {len(items_found)} results")
-            for item in items_found:
+            for item in res.get('items', []):
                 thumbs = item['snippet']['thumbnails']
                 thumb_url = thumbs.get('high', thumbs.get('medium', thumbs.get('default')))['url']
-                api_results.append({
-                    "title": item['snippet']['title'], "description": item['snippet']['description'],
-                    "thumbnail": thumb_url, "poster_path": thumb_url, # standardize
+                candidates.append({
+                    "title": item['snippet']['title'], 
+                    "description": item['snippet']['description'],
+                    "thumbnail": thumb_url, "poster_path": thumb_url,
                     "video_id": item['id']['videoId'], "id": item['id']['videoId'],
-                    "type": "video", "duration": "20 mins", "match_reason": "Keyword Match",
+                    "type": "video", "duration": "20 mins",
                     "overview": item['snippet']['description']
                 })
+            logger.info(f"YouTube API: Added {len(res.get('items', []))} results")
         except Exception as e:
-            logger.error(f"YouTube API Error: {type(e).__name__}: {e}")
-            logger.debug(traceback.format_exc())
-            error_msg = f"YouTube API Error: {str(e)}"
-            
-            # Check if this is a quota error - if so, try yt-dlp fallback
-            if 'quota' in str(e).lower() or '403' in str(e):
-                logger.info("YouTube API quota exceeded, trying yt-dlp fallback...")
-                api_results = search_youtube_ytdlp(enriched_query, max_results=15)
-                if api_results:
-                    error_msg = None  # Clear error since yt-dlp worked
-
-    if api_results:
-        logger.info(f"YouTube: Caching {len(api_results)} video results")
-        cache_content_to_db(api_results)
+            logger.warning(f"YouTube API failed: {e}")
     
-    candidates = api_results
+    # Also get from vector DB for diversity (using profile embedding if available)
+    if user_profile_embedding is not None:
+        logger.info("Vector DB: Searching by user profile embedding...")
+        db_results = query_vector_db(search_query, n_results=30, where_filter={"type": "video"})
+        if db_results:
+            candidates.extend(db_results)
+            logger.info(f"Vector DB: Added {len(db_results)} cached videos")
     
-    # If no API results, try yt-dlp as first fallback (if not already tried)
-    if not candidates and enriched_query and YT_DLP_AVAILABLE:
-        logger.info(f"YouTube: No API results, trying yt-dlp fallback for query '{enriched_query}'")
-        candidates = search_youtube_ytdlp(enriched_query, max_results=50)
-        if candidates:
-            logger.info(f"yt-dlp: Found {len(candidates)} videos")
-            cache_content_to_db(candidates)
-            error_msg = "Using yt-dlp search (API unavailable)."
+    # Deduplicate by ID
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        cid = c.get('video_id') or c.get('id')
+        if cid and cid not in seen:
+            seen.add(cid)
+            unique_candidates.append(c)
     
-    # If still no results, try vector search on cached content
-    if not candidates and enriched_query:
-        logger.info(f"YouTube: Falling back to vector search for query '{enriched_query}'")
-        candidates = query_vector_db(enriched_query, n_results=50, where_filter={"type": "video"})
-        if candidates: 
-            logger.info(f"YouTube: Found {len(candidates)} cached videos")
-            error_msg = "Showing cached videos."
-
-    if not candidates:
-        logger.warning("YouTube: All methods failed, using static fallback")
+    logger.info(f"Stage 1 complete: {len(unique_candidates)} unique candidates")
+    
+    # Cache new content
+    if unique_candidates:
+        cache_content_to_db(unique_candidates)
+    
+    # Fallback to static pool if nothing found
+    if not unique_candidates:
+        logger.warning("No candidates found, using static fallback")
         pool = [x for x in get_static_content_pool() if x['type'] == 'video']
-        candidates = pool[:50]
-
-    if enriched_query and candidates:
-        logger.info(f"Re-ranking {len(candidates)} videos by semantic similarity")
-        candidates = semantic_rerank(candidates, enriched_query, 'description', top_k=50)
-        # Use mood if provided, otherwise use a cleaner description
-        if mood:
-            display_query = mood
-        else:
-            # Don't show "your preferences" - instead show what we actually searched for
-            display_query = enriched_query[:30] + "..." if len(enriched_query) > 30 else enriched_query
-        for item in candidates:
-            score = item.get('similarity_score', 0)
-            display_pct = normalize_score(score)
-            item['match_reason'] = f"<b>{display_pct}% Match</b> to '{display_query}'"
-
-    logger.info(f"Returning {len(candidates)} video recommendations")
-    return candidates, error_msg
+        unique_candidates = pool[:50]
+        error_msg = "Showing curated content."
+    
+    # === STAGE 2: RERANKING ===
+    logger.info(f"Stage 2: Reranking {len(unique_candidates)} candidates...")
+    
+    # Use two-factor reranking
+    results = rerank_by_profile_and_mood(
+        items=unique_candidates,
+        user_profile_embedding=user_profile_embedding,
+        mood=mood,
+        top_k=50
+    )
+    
+    logger.info(f"Returning {len(results)} video recommendations")
+    return results, error_msg
 
 # Reuse existing re-ranker from previous step
 def semantic_rerank(items, query_text, text_key='overview', top_k=10):
@@ -901,3 +951,93 @@ def semantic_rerank(items, query_text, text_key='overview', top_k=10):
         scored.sort(key=lambda x: x['similarity_score'], reverse=True)
         return scored[:top_k]
     except: return items[:top_k]
+
+
+def rerank_by_profile_and_mood(items, user_profile_embedding, mood, top_k=50):
+    """
+    Two-factor reranking for personalized recommendations.
+    
+    Combines two signals:
+    1. Profile similarity - how well the item matches user's overall preferences
+    2. Mood similarity - how well the item matches user's current intent
+    
+    Args:
+        items: List of candidate items to rerank
+        user_profile_embedding: numpy array representing user preferences
+        mood: string representing current user intent/mood
+        top_k: number of top results to return
+    
+    Returns:
+        List of items reranked by combined score with match_reason populated
+    """
+    if not items:
+        return []
+    
+    model = load_embedding_model()
+    
+    # Get text for each item
+    item_texts = []
+    for item in items:
+        text = item.get('description', '') or item.get('overview', '') or item.get('title', '')
+        item_texts.append(text)
+    
+    # Encode all items
+    item_embeddings = model.encode(item_texts)
+    
+    # Calculate profile similarity (if we have user profile)
+    profile_scores = np.zeros(len(items))
+    if user_profile_embedding is not None:
+        profile_scores = cosine_similarity([user_profile_embedding], item_embeddings)[0]
+        # Normalize to 0-1 range (cosine similarity can be negative)
+        profile_scores = np.clip(profile_scores, 0, 1)
+    
+    # Calculate mood similarity (if mood provided)
+    mood_scores = np.zeros(len(items))
+    if mood:
+        mood_embedding = model.encode([mood])[0]
+        mood_scores = cosine_similarity([mood_embedding], item_embeddings)[0]
+        # Normalize to 0-1 range
+        mood_scores = np.clip(mood_scores, 0, 1)
+    
+    # Combine scores with appropriate weights
+    # If mood provided: weight mood higher (60%) as it represents current intent
+    # If no mood: use only profile scores
+    if mood and user_profile_embedding is not None:
+        alpha = 0.4  # profile weight
+        beta = 0.6   # mood weight
+        final_scores = alpha * profile_scores + beta * mood_scores
+        score_type = "combined"
+    elif mood:
+        final_scores = mood_scores
+        score_type = "mood"
+    else:
+        final_scores = profile_scores
+        score_type = "profile"
+    
+    # Create scored items
+    scored_items = list(zip(items, final_scores, profile_scores, mood_scores))
+    scored_items.sort(key=lambda x: x[1], reverse=True)
+    
+    # Build results with transparent match reasons
+    results = []
+    for item, final, profile, mood_s in scored_items[:top_k]:
+        item = item.copy()
+        
+        # Convert to percentage (scale up since cosine scores are typically 0.1-0.5)
+        final_pct = min(99, int(final * 200))  # Scale up for display
+        profile_pct = min(99, int(profile * 200))
+        mood_pct = min(99, int(mood_s * 200))
+        
+        # Create transparent match reason
+        if score_type == "combined":
+            item['match_reason'] = f"<b>{final_pct}%</b> match ({mood_pct}% mood, {profile_pct}% profile)"
+        elif score_type == "mood":
+            item['match_reason'] = f"<b>{final_pct}%</b> match to '{mood}'"
+        else:
+            item['match_reason'] = f"<b>{final_pct}%</b> profile match"
+        
+        item['similarity_score'] = float(final)
+        results.append(item)
+    
+    logger.info(f"Reranked {len(items)} items -> top {len(results)} by {score_type}")
+    return results
