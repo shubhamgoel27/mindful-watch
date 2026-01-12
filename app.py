@@ -605,10 +605,16 @@ def show_dashboard():
         
         st.markdown("### ⏱️ How much time do you have?")
         # Slider with 5-minute intervals
+        # Snap saved value to nearest valid option (handles old user data)
+        valid_options = list(range(10, 185, 5))  # 10-180 in steps of 5
+        saved_time = user_prefs.get('max_watch_time', 60)
+        # Round to nearest 5 and clamp to valid range
+        snapped_time = max(10, min(180, round(saved_time / 5) * 5))
+        
         max_watch_time = st.select_slider(
             "Max Watch Time",
-            options=list(range(10, 185, 5)),  # 10-180 in steps of 5
-            value=user_prefs.get('max_watch_time', 60),
+            options=valid_options,
+            value=snapped_time,
             format_func=lambda x: f"{x} mins",
             label_visibility="collapsed"
         )
