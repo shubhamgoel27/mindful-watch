@@ -464,7 +464,7 @@ def show_login():
             </div>
         """, unsafe_allow_html=True)
         
-        username = st.text_input("", placeholder="Enter your name...", label_visibility="collapsed")
+        username = st.text_input("Name", placeholder="Enter your name...", label_visibility="collapsed")
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
         with col_btn2:
