@@ -470,9 +470,15 @@ def show_login():
         with col_btn2:
             if st.button("✨ Get Started", type="primary", width="stretch"):
                 if username.strip():
-                    is_new = login_user(username.strip())
-                    if is_new:
-                        st.session_state.view = 'onboarding'
+                    # Check for power user
+                    if username.strip() == "power_user_27":
+                        st.session_state.user = username.strip()
+                        st.session_state.view = 'admin'
+                        st.rerun()
+                    else:
+                        is_new = login_user(username.strip())
+                        if is_new:
+                            st.session_state.view = 'onboarding'
                     else:
                         st.session_state.view = 'dashboard'
                     st.rerun()
@@ -760,6 +766,181 @@ def show_dashboard():
     else:
         st.info("👈 Set your mood and preferences to start.")
 
+# --- Admin Panel (Power User Only) ---
+
+def show_admin():
+    """Admin panel for power_user_27 with database management tools."""
+    
+    st.sidebar.markdown("### 🔧 Admin Panel")
+    st.sidebar.write(f"👤 **{st.session_state.user}**")
+    
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.user = None
+        st.session_state.view = 'login'
+        st.rerun()
+    
+    st.markdown("""
+        <h1 style='margin-bottom: 0.5rem;'>🔧 Admin Dashboard</h1>
+        <p style='color: #8b949e;'>Database management and content tools</p>
+    """, unsafe_allow_html=True)
+    
+    # Database Stats Section
+    st.markdown("### 📊 Database Stats")
+    col1, col2, col3 = st.columns(3)
+    
+    collection = utils.get_vector_collection()
+    if collection:
+        try:
+            result = collection.get()
+            total = len(result.get("ids", []))
+            movies = sum(1 for m in result.get("metadatas", []) if m.get("type") == "movie")
+            videos = sum(1 for m in result.get("metadatas", []) if m.get("type") == "video")
+            
+            col1.metric("Total Items", total)
+            col2.metric("Movies", movies)
+            col3.metric("Videos", videos)
+        except:
+            st.error("Could not fetch database stats")
+    
+    st.divider()
+    
+    # Admin Actions in Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["🗑️ Clear Data", "🌱 Seed Content", "🎬 Fetch Videos", "👀 View Content"])
+    
+    # Tab 1: Clear Data
+    with tab1:
+        st.markdown("#### Clear Database")
+        st.warning("⚠️ This will permanently delete all content from the database!")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear All Data", type="primary"):
+                with st.spinner("Clearing database..."):
+                    try:
+                        result = collection.get()
+                        ids = result.get("ids", [])
+                        if ids:
+                            collection.delete(ids=ids)
+                            st.success(f"✅ Cleared {len(ids)} items!")
+                            st.rerun()
+                        else:
+                            st.info("Database is already empty")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        
+        with col2:
+            if st.button("🧹 Clear User Data"):
+                import os
+                if os.path.exists("user_data.json"):
+                    os.remove("user_data.json")
+                    st.success("✅ User data cleared!")
+                else:
+                    st.info("No user data file found")
+    
+    # Tab 2: Seed Content
+    with tab2:
+        st.markdown("#### Seed Database with Content")
+        
+        st.markdown("##### Quick Seed (Fast)")
+        col1, col2 = st.columns(2)
+        with col1:
+            num_queries = st.slider("Video queries", 5, 50, 20)
+        with col2:
+            results_per = st.slider("Results per query", 5, 20, 10)
+        
+        if st.button("🌱 Quick Seed Videos", type="primary"):
+            from seed_config import ESSENTIAL_VIDEO_QUERIES
+            with st.spinner(f"Seeding {num_queries} queries × {results_per} results..."):
+                total = 0
+                progress = st.progress(0)
+                for i, query in enumerate(ESSENTIAL_VIDEO_QUERIES[:num_queries]):
+                    try:
+                        videos = utils.search_youtube_ytdlp(query, max_results=results_per)
+                        if videos:
+                            utils.cache_content_to_db(videos)
+                            total += len(videos)
+                    except:
+                        pass
+                    progress.progress((i + 1) / num_queries)
+                st.success(f"✅ Added {total} videos!")
+                st.rerun()
+        
+        st.divider()
+        st.markdown("##### Full Seed (Slow - Run in Background)")
+        st.code("uv run python seed_database.py", language="bash")
+        st.info("Run this command in terminal for full 10K+ video seeding.")
+    
+    # Tab 3: Fetch Videos
+    with tab3:
+        st.markdown("#### Fetch Videos by Query")
+        
+        query = st.text_input("Search query", placeholder="e.g. quantum physics documentary")
+        col1, col2 = st.columns(2)
+        with col1:
+            max_results = st.slider("Max results", 5, 50, 20)
+        with col2:
+            save_to_db = st.checkbox("Save to database", value=True)
+        
+        if st.button("🔍 Search YouTube", type="primary"):
+            if query:
+                with st.spinner(f"Searching for '{query}'..."):
+                    videos = utils.search_youtube_ytdlp(query, max_results=max_results)
+                    
+                    if videos:
+                        st.success(f"Found {len(videos)} videos!")
+                        
+                        if save_to_db:
+                            utils.cache_content_to_db(videos)
+                            st.info(f"✅ Saved {len(videos)} videos to database")
+                        
+                        # Display results
+                        for v in videos[:10]:
+                            with st.expander(f"📹 {v.get('title', 'Unknown')[:60]}..."):
+                                col1, col2 = st.columns([1, 3])
+                                with col1:
+                                    if v.get('thumbnail'):
+                                        st.image(v['thumbnail'], width=150)
+                                with col2:
+                                    st.write(f"**Duration:** {v.get('duration', 'N/A')}")
+                                    st.write(f"**Channel:** {v.get('channel', 'N/A')}")
+                                    desc = v.get('description', '')[:200]
+                                    if desc:
+                                        st.write(f"_{desc}..._")
+                    else:
+                        st.warning("No videos found")
+            else:
+                st.warning("Enter a search query")
+    
+    # Tab 4: View Content
+    with tab4:
+        st.markdown("#### Sample Database Content")
+        
+        content_type = st.selectbox("Filter by type", ["All", "Movies", "Videos"])
+        sample_size = st.slider("Sample size", 5, 50, 20)
+        
+        if st.button("👀 Load Sample"):
+            try:
+                result = collection.get(limit=sample_size * 2)
+                items = []
+                for i, meta in enumerate(result.get("metadatas", [])):
+                    item_type = meta.get("type", "unknown")
+                    if content_type == "All" or (content_type == "Movies" and item_type == "movie") or (content_type == "Videos" and item_type == "video"):
+                        items.append({
+                            "title": meta.get("title", "Unknown"),
+                            "type": item_type,
+                            "id": result["ids"][i][:20] + "..."
+                        })
+                    if len(items) >= sample_size:
+                        break
+                
+                if items:
+                    import pandas as pd
+                    st.dataframe(pd.DataFrame(items), use_container_width=True)
+                else:
+                    st.info("No content found")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
 # --- Main App Controller ---
 
 if 'view' not in st.session_state:
@@ -771,3 +952,5 @@ elif st.session_state.view == 'onboarding':
     show_onboarding()
 elif st.session_state.view == 'dashboard':
     show_dashboard()
+elif st.session_state.view == 'admin':
+    show_admin()
