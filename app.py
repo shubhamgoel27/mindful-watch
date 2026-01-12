@@ -468,7 +468,7 @@ def show_login():
         
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
         with col_btn2:
-            if st.button("✨ Get Started", type="primary", use_container_width=True):
+            if st.button("✨ Get Started", type="primary", width="stretch"):
                 if username.strip():
                     is_new = login_user(username.strip())
                     if is_new:
@@ -524,9 +524,9 @@ def show_onboarding():
                 # Image
                 img_url = current_item.get('poster_path') or current_item.get('thumbnail')
                 if img_url:
-                    st.image(img_url, use_container_width=True)
+                    st.image(img_url, width="stretch")
                 else:
-                    st.image("https://via.placeholder.com/400x300?text=No+Image", use_container_width=True)
+                    st.image("https://via.placeholder.com/400x300?text=No+Image", width="stretch")
                 
                 # Title
                 title = current_item.get('title', 'Unknown')
@@ -543,16 +543,16 @@ def show_onboarding():
             # Like/Dislike buttons (Tinder style)
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
             with btn_col1:
-                if st.button("👎 Nope", key="dislike_btn", use_container_width=True):
+                if st.button("👎 Nope", key="dislike_btn", width="stretch"):
                     st.session_state.disliked_onboarding.append(current_item['title'])
                     st.session_state.onboarding_index += 1
                     st.rerun()
             with btn_col2:
-                if st.button("⏭️ Skip", key="skip_btn", use_container_width=True):
+                if st.button("⏭️ Skip", key="skip_btn", width="stretch"):
                     st.session_state.onboarding_index += 1
                     st.rerun()
             with btn_col3:
-                if st.button("👍 Like", key="like_btn", type="primary", use_container_width=True):
+                if st.button("👍 Like", key="like_btn", type="primary", width="stretch"):
                     st.session_state.liked_onboarding.append(current_item['title'])
                     st.session_state.onboarding_index += 1
                     st.rerun()
@@ -565,7 +565,7 @@ def show_onboarding():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if total_rated >= min_ratings:
-            if st.button("✨ Finish Setup & Get Recommendations", type="primary", use_container_width=True):
+            if st.button("✨ Finish Setup & Get Recommendations", type="primary", width="stretch"):
                 st.session_state.user_data['liked_movies_onboarding'] = st.session_state.liked_onboarding
                 save_current_state()
                 st.session_state.view = 'dashboard'
@@ -613,7 +613,7 @@ def show_dashboard():
             label_visibility="collapsed"
         )
         
-        submit_button = st.form_submit_button("🔍 Get Recommendations", type="primary", use_container_width=True)
+        submit_button = st.form_submit_button("🔍 Get Recommendations", type="primary", width="stretch")
 
     if submit_button:
         st.session_state.user_data['preferences'] = {
