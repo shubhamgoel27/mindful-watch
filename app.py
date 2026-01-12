@@ -478,60 +478,101 @@ def show_login():
                     st.rerun()
 
 def show_onboarding():
-    st.title(f"Welcome, {st.session_state.user}! Let's get to know you.")
-    st.write("Select the content (Movies & Videos) you enjoy to help us calibrate recommendations.")
-    
+    # Initialize onboarding state
     if 'onboarding_movies' not in st.session_state:
         st.session_state.onboarding_movies = utils.get_onboarding_content()
+    if 'onboarding_index' not in st.session_state:
+        st.session_state.onboarding_index = 0
+    if 'liked_onboarding' not in st.session_state:
+        st.session_state.liked_onboarding = []
+    if 'disliked_onboarding' not in st.session_state:
+        st.session_state.disliked_onboarding = []
     
-    # Simple Pagination
-    if 'page_count' not in st.session_state:
-        st.session_state.page_count = 1
+    content_list = st.session_state.onboarding_movies
+    current_idx = st.session_state.onboarding_index
+    total_rated = len(st.session_state.liked_onboarding) + len(st.session_state.disliked_onboarding)
+    min_ratings = 5
     
-    items_per_page = 9
-    movies = st.session_state.onboarding_movies[:st.session_state.page_count * items_per_page]
+    # Header
+    st.markdown(f"""
+        <div style='text-align: center; margin-bottom: 1rem;'>
+            <h1 style='margin-bottom: 0.3rem;'>Welcome, {st.session_state.user}! 👋</h1>
+            <p style='color: #8b949e;'>Swipe through content to help us learn your taste</p>
+        </div>
+    """, unsafe_allow_html=True)
     
-    if 'selected_onboarding' not in st.session_state:
-        st.session_state.selected_onboarding = set()
-
-    # 3-Column Grid
-    cols = st.columns(3)
-    for idx, movie in enumerate(movies):
-        with cols[idx % 3]:
+    # Progress indicator
+    progress_text = f"Rated: {total_rated} | Liked: {len(st.session_state.liked_onboarding)} | Need at least {min_ratings}"
+    st.markdown(f"<p style='text-align: center; color: #7c3aed; font-weight: 500;'>{progress_text}</p>", unsafe_allow_html=True)
+    
+    # Check if we've rated enough
+    if total_rated >= min_ratings:
+        st.markdown("""
+            <div style='text-align: center; padding: 0.5rem; background: rgba(124, 58, 237, 0.2); border-radius: 10px; margin-bottom: 1rem;'>
+                <p style='color: #c4b5fd; margin: 0;'>✅ You've rated enough! You can continue or finish setup.</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Show current card
+    if current_idx < len(content_list):
+        current_item = content_list[current_idx]
+        
+        # Center the card
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
             with st.container(border=True):
-                # Standardized key 'poster_path' from utils.py
-                img_url = movie.get('poster_path')
+                # Image
+                img_url = current_item.get('poster_path') or current_item.get('thumbnail')
                 if img_url:
-                    st.image(img_url, width="stretch")
+                    st.image(img_url, use_container_width=True)
                 else:
-                    st.image("https://via.placeholder.com/300x450?text=No+Image", width="stretch")
+                    st.image("https://via.placeholder.com/400x300?text=No+Image", use_container_width=True)
                 
-                # Truncate title for checkbox to ensure relatively uniform height
-                title = movie['title']
-                display_title = (title[:45] + '..') if len(title) > 45 else title
+                # Title
+                title = current_item.get('title', 'Unknown')
+                content_type = "🎥 Movie" if current_item.get('type') == 'movie' else "▶️ Video"
+                st.markdown(f"<h3 style='text-align: center; margin: 0.5rem 0;'>{title}</h3>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align: center; color: #8b949e;'>{content_type}</p>", unsafe_allow_html=True)
                 
-                is_selected = movie['title'] in st.session_state.selected_onboarding
-                if st.checkbox(display_title, key=f"fav_{movie['id']}", value=is_selected):
-                    st.session_state.selected_onboarding.add(movie['title'])
-                elif is_selected:
-                     if movie['title'] in st.session_state.selected_onboarding:
-                         st.session_state.selected_onboarding.remove(movie['title'])
-
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        if len(movies) < len(st.session_state.onboarding_movies):
-            if st.button("Load More"):
-                st.session_state.page_count += 1
-                st.rerun()
+                # Description (truncated)
+                desc = current_item.get('overview') or current_item.get('description', '')
+                if desc:
+                    truncated = desc[:150] + "..." if len(desc) > 150 else desc
+                    st.markdown(f"<p style='color: #c9d1d9; font-size: 0.9rem; text-align: center;'>{truncated}</p>", unsafe_allow_html=True)
+            
+            # Like/Dislike buttons (Tinder style)
+            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
+            with btn_col1:
+                if st.button("👎 Nope", key="dislike_btn", use_container_width=True):
+                    st.session_state.disliked_onboarding.append(current_item['title'])
+                    st.session_state.onboarding_index += 1
+                    st.rerun()
+            with btn_col2:
+                if st.button("⏭️ Skip", key="skip_btn", use_container_width=True):
+                    st.session_state.onboarding_index += 1
+                    st.rerun()
+            with btn_col3:
+                if st.button("👍 Like", key="like_btn", type="primary", use_container_width=True):
+                    st.session_state.liked_onboarding.append(current_item['title'])
+                    st.session_state.onboarding_index += 1
+                    st.rerun()
+    else:
+        # No more content to rate
+        st.info("You've rated all available content!")
     
+    # Finish button (only enabled if min ratings met)
     st.markdown("---")
-    st.write(f"**Selected:** {len(st.session_state.selected_onboarding)} items")
-    
-    if st.button("Finish Setup", type="primary"):
-        st.session_state.user_data['liked_movies_onboarding'] = list(st.session_state.selected_onboarding)
-        save_current_state()
-        st.session_state.view = 'dashboard'
-        st.rerun()
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if total_rated >= min_ratings:
+            if st.button("✨ Finish Setup & Get Recommendations", type="primary", use_container_width=True):
+                st.session_state.user_data['liked_movies_onboarding'] = st.session_state.liked_onboarding
+                save_current_state()
+                st.session_state.view = 'dashboard'
+                st.rerun()
+        else:
+            remaining = min_ratings - total_rated
+            st.markdown(f"<p style='text-align: center; color: #8b949e;'>Rate {remaining} more to continue</p>", unsafe_allow_html=True)
 
 def show_dashboard():
     st.sidebar.title(f"👤 {st.session_state.user}")
@@ -543,47 +584,57 @@ def show_dashboard():
         
     if st.sidebar.button("Retake Onboarding"):
         st.session_state.view = 'onboarding'
-        st.session_state.page_count = 1
+        # Reset onboarding state
+        st.session_state.onboarding_index = 0
+        st.session_state.liked_onboarding = []
+        st.session_state.disliked_onboarding = []
         st.rerun()
     
     st.sidebar.markdown("---")
 
     user_prefs = st.session_state.user_data.get('preferences', {})
-    default_watched = user_prefs.get('watched_movies', ", ".join(st.session_state.user_data.get('liked_movies_onboarding', [])))
 
     with st.sidebar.form("preferences_form"):
-        subscriptions = st.multiselect("Subscriptions", list(config.PROVIDER_MAP.keys()), default=user_prefs.get('subscriptions', ["Netflix"]))
-        watched_movies = st.text_area("Watched / Favorites", value=default_watched)
-        liked_actors = st.text_input("Liked Actors", value=user_prefs.get('liked_actors', ""))
-        liked_directors = st.text_input("Liked Directors", value=user_prefs.get('liked_directors', ""))
-        max_watch_time = st.slider("Max Watch Time (mins)", 10, 180, user_prefs.get('max_watch_time', 120))
-        focus_mode = st.checkbox("Focus Mode (Includes Videos)", value=user_prefs.get('focus_mode', True))
-        mood_goal = st.text_input("Mood / Goal", value=user_prefs.get('mood_goal', ""), placeholder="relax, learn something new")
-        submit_button = st.form_submit_button("Get Recommendations", type="primary")
+        st.markdown("### 🎯 What are you in the mood for?")
+        mood_goal = st.text_input(
+            "Mood / Goal", 
+            value=user_prefs.get('mood_goal', ""), 
+            placeholder="e.g. relax, learn science, feel inspired",
+            label_visibility="collapsed"
+        )
+        
+        st.markdown("### ⏱️ How much time do you have?")
+        # Slider with 5-minute intervals
+        max_watch_time = st.select_slider(
+            "Max Watch Time",
+            options=list(range(10, 185, 5)),  # 10-180 in steps of 5
+            value=user_prefs.get('max_watch_time', 60),
+            format_func=lambda x: f"{x} mins",
+            label_visibility="collapsed"
+        )
+        
+        submit_button = st.form_submit_button("🔍 Get Recommendations", type="primary", use_container_width=True)
 
     if submit_button:
         st.session_state.user_data['preferences'] = {
-            "subscriptions": subscriptions, "watched_movies": watched_movies,
-            "liked_actors": liked_actors, "liked_directors": liked_directors,
-            "max_watch_time": max_watch_time, "focus_mode": focus_mode, "mood_goal": mood_goal
+            "max_watch_time": max_watch_time, 
+            "mood_goal": mood_goal
         }
         save_current_state()
         st.session_state.submitted = True
-        st.session_state.api_errors = [] # Reset errors
+        st.session_state.api_errors = []
         
-        with st.spinner("Analyzing semantic matches & curating your videos..."):
+        with st.spinner("Finding your perfect content..."):
             # Build liked_content tuple from session state for query enrichment
             liked_titles = st.session_state.user_data.get('liked_movies_onboarding', [])
             onboarding_content = st.session_state.get('onboarding_movies', [])
             liked_content = (liked_titles, onboarding_content) if liked_titles else None
             
-            # Build search query: use mood if provided, otherwise empty (utils will handle fallback)
+            # Build search query: use mood if provided
             search_query = mood_goal if mood_goal else ""
             
-            # No longer fetching movies - only videos
+            # Fetch videos
             st.session_state.recommendations['movies'] = []
-            
-            # Fetch Videos (always, not just when focus_mode)
             videos, v_err = utils.fetch_video_recommendations(
                 search_query,
                 max_time_mins=max_watch_time,
