@@ -391,6 +391,125 @@ YOUTUBE_QUERIES = [
     "traditional crafts documentary",
 ]
 
+# Additional video queries for 10K+ videos target
+EXTRA_VIDEO_QUERIES = [
+    # === INDIAN CONTENT ===
+    "Indian history documentary",
+    "Mughal Empire documentary",
+    "British India documentary", 
+    "Indian independence movement",
+    "Mahatma Gandhi documentary",
+    "Indian philosophy Vedanta",
+    "Yoga history documentary",
+    "Ayurveda documentary",
+    "Indian classical music",
+    "Bollywood film analysis",
+    "Indian cinema history",
+    "Satyajit Ray films",
+    "Indian art documentary",
+    "Indian architecture documentary",
+    "Hindu mythology explained",
+    "Buddhism in India documentary",
+    "Indian economics explained",
+    "ISRO space program",
+    "Indian technology documentary",
+    
+    # === MORE SCIENCE ===
+    "origins of life documentary",
+    "DNA sequencing explained",
+    "CRISPR gene editing",
+    "synthetic biology",
+    "virology documentary",
+    "oceanography deep sea",
+    "atmospheric science",
+    "renewable energy future",
+    "nuclear fusion explained",
+    "quantum entanglement",
+    "time dilation explained",
+    "multiverse theory",
+    "unified field theory",
+    "entropy thermodynamics",
+    
+    # === MORE HISTORY ===
+    "ancient India documentary",
+    "Silk Road history",
+    "colonial history documentary",
+    "Soviet Union history",
+    "Chinese history documentary",
+    "Korean history documentary",
+    "Southeast Asian history",
+    "African history pre-colonial",
+    "Native American history",
+    "Australian Aboriginal history",
+    "Polynesian navigation",
+    "Medieval Japan samurai",
+    "Crusades history",
+    "Black Death plague",
+    "Spanish Inquisition",
+    "Protestant Reformation",
+    
+    # === MORE PHILOSOPHY ===
+    "Vedanta philosophy",
+    "Taoism explained",
+    "Confucius philosophy",
+    "Indian philosophy schools",
+    "Advaita Vedanta",
+    "Yoga Sutras explained",
+    "Upanishads explained",
+    "Bhagavad Gita analysis",
+    "Zen Buddhism",
+    "Sufism documentary",
+    
+    # === MORE TECH ===
+    "5G technology explained",
+    "autonomous vehicles",
+    "drone technology",
+    "3D printing revolution",
+    "quantum internet",
+    "nuclear reactor types",
+    "fusion reactor progress",
+    "satellite technology",
+    "GPS explained",
+    "fiber optics explained",
+    "microprocessor design",
+    "GPU computing",
+    "cloud computing explained",
+    
+    # === MORE CULTURE ===
+    "African art documentary",
+    "Latin American history",
+    "Middle Eastern history",
+    "Islamic architecture",
+    "Japanese tea ceremony",
+    "Chinese calligraphy",
+    "Korean culture documentary",
+    "Aboriginal dreamtime",
+    "Celtic history",
+    "Norse mythology",
+    "Greek mythology",
+    "Egyptian mythology",
+    
+    # === SPORTS & ATHLETICS ===
+    "Olympics history documentary",
+    "sports science explained",
+    "biomechanics sports",
+    "marathon running science",
+    "swimming technique analysis",
+    "football tactics explained",
+    "basketball strategy",
+    "cricket history documentary",
+    "tennis technique analysis",
+    
+    # === ENTREPRENEURSHIP ===
+    "startup documentary",
+    "Silicon Valley history",
+    "venture capital explained",
+    "business strategy documentary",
+    "innovation documentary",
+    "disruptive technology",
+    "lean startup methodology",
+]
+
 # ============================================================================
 # TMDB GENRE IDS (All genres for comprehensive movie coverage)
 # ============================================================================
@@ -416,6 +535,39 @@ TMDB_GENRES = {
     10752: "War",
     37: "Western",
 }
+
+# Bollywood/Indian cinema specific keywords for TMDB searches
+BOLLYWOOD_QUERIES = [
+    "Shah Rukh Khan",
+    "Aamir Khan",
+    "Salman Khan",
+    "Amitabh Bachchan",
+    "Rajinikanth",
+    "Ranbir Kapoor",
+    "Ranveer Singh",
+    "Hrithik Roshan",
+    "Akshay Kumar",
+    "Deepika Padukone",
+    "Priyanka Chopra",
+    "Alia Bhatt",
+    "Kareena Kapoor",
+    "Katrina Kaif",
+]
+
+# Classic and acclaimed Indian films to search for
+BOLLYWOOD_CLASSICS = [
+    "Sholay", "Dilwale Dulhania Le Jayenge", "3 Idiots",
+    "Lagaan", "Dil Chahta Hai", "Rang De Basanti",
+    "Dangal", "PK", "Bajrangi Bhaijaan",
+    "Zindagi Na Milegi Dobara", "Barfi", "Taare Zameen Par",
+    "Gangs of Wasseypur", "Andhadhun", "Article 15",
+    "Queen", "Pink", "Gully Boy", "RRR", "Pathaan",
+    "Mughal-E-Azam", "Mother India", "Guide",
+    "Pather Panchali", "Charulata", "Pyaasa",
+    "Devdas", "Black", "Swades", "Chak De India",
+    "Drishyam", "Padmaavat", "Bahubali",
+    "Super Deluxe", "Vikram", "KGF", "Kantara",
+]
 
 # ============================================================================
 # SEEDING FUNCTIONS
@@ -581,10 +733,79 @@ def get_db_stats():
         return {"error": str(e)}
 
 
+def seed_bollywood(max_results=200):
+    """Fetch Bollywood movies from TMDB using actor searches and title searches."""
+    if not config.TMDB_API_KEY or config.TMDB_API_KEY == "YOUR_TMDB_KEY":
+        logger.warning("TMDB API key not configured. Skipping Bollywood seeding.")
+        return 0
+    
+    import requests
+    
+    logger.info("=" * 60)
+    logger.info("SEEDING BOLLYWOOD MOVIES FROM TMDB")
+    logger.info("=" * 60)
+    
+    all_movies = []
+    seen_ids = set()
+    
+    # Fetch Indian movies by region
+    logger.info("Fetching Indian region movies...")
+    movies = fetch_tmdb_discover(
+        params={
+            "with_original_language": "hi",  # Hindi
+            "vote_count.gte": 50,
+            "sort_by": "popularity.desc"
+        },
+        max_pages=10
+    )
+    
+    for movie in movies:
+        movie_id = str(movie.get("id"))
+        if movie_id not in seen_ids:
+            seen_ids.add(movie_id)
+            movie["type"] = "movie"
+            all_movies.append(movie)
+    
+    logger.info(f"  -> Got {len(all_movies)} Hindi movies")
+    
+    # Also fetch Tamil and Telugu
+    for lang, lang_name in [("ta", "Tamil"), ("te", "Telugu")]:
+        logger.info(f"Fetching {lang_name} movies...")
+        movies = fetch_tmdb_discover(
+            params={
+                "with_original_language": lang,
+                "vote_count.gte": 50,
+                "sort_by": "popularity.desc"
+            },
+            max_pages=5
+        )
+        
+        count = 0
+        for movie in movies:
+            movie_id = str(movie.get("id"))
+            if movie_id not in seen_ids:
+                seen_ids.add(movie_id)
+                movie["type"] = "movie"
+                all_movies.append(movie)
+                count += 1
+        
+        logger.info(f"  -> Got {count} {lang_name} movies")
+        time.sleep(0.25)
+    
+    logger.info(f"Total unique Indian movies fetched: {len(all_movies)}")
+    
+    if all_movies:
+        logger.info("Caching Indian movies to vector database...")
+        cache_content_to_db(all_movies)
+    
+    return len(all_movies)
+
+
 def main():
-    """Main seeding function."""
+    """Main seeding function for 500+ movies and 10K+ videos."""
     print("\n" + "=" * 60)
     print("MindfulWatch Database Seeder")
+    print("Target: 500+ movies, 10,000+ videos")
     print("=" * 60 + "\n")
     
     # Check current stats
@@ -597,12 +818,18 @@ def main():
     
     start_time = datetime.now()
     
-    # Seed movies
+    # Seed movies (Western genres)
     movies_added = seed_movies(max_per_genre=30)
-    print(f"\n✓ Added {movies_added} movies")
+    print(f"\n✓ Added {movies_added} Western movies")
     
-    # Seed videos
-    videos_added = seed_videos(results_per_query=10)
+    # Seed Bollywood / Indian movies
+    bollywood_added = seed_bollywood()
+    print(f"✓ Added {bollywood_added} Indian (Bollywood/Tamil/Telugu) movies")
+    
+    # Seed videos with ALL queries (combined list)
+    all_queries = YOUTUBE_QUERIES + EXTRA_VIDEO_QUERIES
+    print(f"\nSeeding videos from {len(all_queries)} queries...")
+    videos_added = seed_videos(queries=all_queries, results_per_query=20)
     print(f"✓ Added {videos_added} videos")
     
     # Final stats

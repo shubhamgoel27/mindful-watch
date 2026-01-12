@@ -88,7 +88,7 @@ def show_sample(count=10, item_type=None):
         print(f"Error: {e}")
 
 
-def clear_database():
+def clear_database(force=False):
     """Clear all items from the database."""
     collection = get_vector_collection()
     if not collection:
@@ -103,17 +103,54 @@ def clear_database():
             print("Database is already empty.")
             return
         
-        print(f"\nThis will delete {len(ids)} items.")
-        confirm = input("Are you sure? (yes/no): ")
+        if not force:
+            print(f"\nThis will delete {len(ids)} items.")
+            confirm = input("Are you sure? (yes/no): ")
+            if confirm.lower() != "yes":
+                print("Cancelled.")
+                return
         
-        if confirm.lower() == "yes":
-            collection.delete(ids=ids)
-            print(f"Deleted {len(ids)} items.")
-        else:
-            print("Cancelled.")
+        collection.delete(ids=ids)
+        print(f"Deleted {len(ids)} items from vector database.")
             
     except Exception as e:
         print(f"Error: {e}")
+
+
+def clear_all():
+    """Clear all data: vector database + user data. No confirmation prompt."""
+    import os
+    
+    # Clear vector database
+    collection = get_vector_collection()
+    if collection:
+        try:
+            result = collection.get()
+            ids = result.get("ids", [])
+            if ids:
+                collection.delete(ids=ids)
+                print(f"✓ Cleared {len(ids)} items from vector database")
+            else:
+                print("✓ Vector database already empty")
+        except Exception as e:
+            print(f"✗ Error clearing vector database: {e}")
+    
+    # Clear user data
+    user_data_file = "user_data.json"
+    if os.path.exists(user_data_file):
+        os.remove(user_data_file)
+        print(f"✓ Deleted {user_data_file}")
+    else:
+        print(f"✓ {user_data_file} doesn't exist")
+    
+    # Clear ChromaDB directory (optional full reset)
+    chroma_dir = "chroma_db"
+    if os.path.exists(chroma_dir):
+        import shutil
+        shutil.rmtree(chroma_dir)
+        print(f"✓ Deleted {chroma_dir} directory")
+    
+    print("\n🧹 All data cleared! Ready for fresh start.")
 
 
 def export_database(filename=None):
@@ -152,13 +189,15 @@ def export_database(filename=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Database management tool")
-    parser.add_argument("command", choices=["stats", "sample", "clear", "export"],
+    parser.add_argument("command", choices=["stats", "sample", "clear", "clear_all", "export"],
                        help="Command to run")
     parser.add_argument("--count", type=int, default=10,
                        help="Number of items for sample command")
     parser.add_argument("--type", choices=["movie", "video"],
                        help="Filter by type for sample command")
     parser.add_argument("--output", help="Output filename for export")
+    parser.add_argument("--force", action="store_true",
+                       help="Skip confirmation for clear command")
     
     args = parser.parse_args()
     
@@ -167,7 +206,9 @@ def main():
     elif args.command == "sample":
         show_sample(count=args.count, item_type=args.type)
     elif args.command == "clear":
-        clear_database()
+        clear_database(force=args.force)
+    elif args.command == "clear_all":
+        clear_all()
     elif args.command == "export":
         export_database(args.output)
 

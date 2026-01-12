@@ -34,6 +34,18 @@ def get_tmdb():
     t.language = 'en'
     return t
 
+# --- Video Filtering Constants ---
+MIN_VIDEO_DURATION_SECS = 5 * 60    # 5 minutes minimum (skip shorts)
+MAX_VIDEO_DURATION_SECS = 120 * 60  # 120 minutes maximum (skip ultra-long content)
+
+# Keywords to skip (ambient/white noise content)
+SKIP_VIDEO_KEYWORDS = [
+    '10 hour', '8 hour', '12 hour', 'hours of', 
+    'sleep music', 'white noise', 'rain sounds', 'relaxing music for',
+    'ambient sounds', 'study music', 'meditation music for sleep',
+    'fireplace', 'nature sounds for', 'asmr sleep'
+]
+
 # --- Model Loading (Singleton) ---
 # Use a module-level singleton to avoid reloading the model on every call
 # This works both in Streamlit (with st.cache_resource) and standalone scripts
@@ -42,14 +54,24 @@ _embedding_model = None
 
 def load_embedding_model():
     """
-    Loads the lightweight SentenceTransformer model.
+    Loads the Qwen3-Embedding-0.6B model for high-quality embeddings.
     Uses a singleton pattern to load only once per process.
+    
+    Note: First run will download ~2.5GB. Model is larger but provides
+    significantly better semantic understanding and multilingual support.
     """
     global _embedding_model
     if _embedding_model is None:
-        logger.info("Loading embedding model (first time)...")
-        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        logger.info("Embedding model loaded successfully")
+        logger.info("Loading Qwen3 embedding model (first time, ~2.5GB download)...")
+        try:
+            # Qwen3-Embedding-0.6B - better quality than MiniLM
+            _embedding_model = SentenceTransformer('Alibaba-NLP/gte-Qwen2-1.5B-instruct')
+            logger.info("Qwen3 embedding model loaded successfully")
+        except Exception as e:
+            # Fallback to MiniLM if Qwen3 fails to load
+            logger.warning(f"Failed to load Qwen3 model: {e}. Falling back to MiniLM.")
+            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            logger.info("MiniLM fallback model loaded successfully")
     return _embedding_model
 
 # --- Score Normalization ---
@@ -331,63 +353,78 @@ def get_random_cached_content(limit=20):
         return []
 
 # --- yt-dlp YouTube Search (Quota-Free Fallback) ---
-def search_youtube_ytdlp(query, max_results=15):
+def search_youtube_ytdlp(query, max_results=15, min_duration_secs=None, max_duration_secs=None):
     """
     Search YouTube using yt-dlp (no API quota).
-    This is a fallback when the YouTube Data API quota is exceeded.
+    Filters videos by duration (5-120 mins by default) and skips ambient content.
     """
     if not YT_DLP_AVAILABLE:
         logger.warning("yt-dlp not available for fallback search")
         return []
     
-    logger.info(f"yt-dlp: Searching YouTube for '{query}'")
+    # Use module-level defaults if not specified
+    if min_duration_secs is None:
+        min_duration_secs = MIN_VIDEO_DURATION_SECS
+    if max_duration_secs is None:
+        max_duration_secs = MAX_VIDEO_DURATION_SECS
+    
+    logger.info(f"yt-dlp: Searching '{query}' ({min_duration_secs//60}-{max_duration_secs//60} mins)")
     
     try:
+        fetch_count = max_results * 3  # Fetch more since we'll filter
+        
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': True,  # Don't download, just get metadata
+            'extract_flat': True,
             'skip_download': True,
-            'default_search': f'ytsearch{max_results}',  # Limit results
+            'default_search': f'ytsearch{fetch_count}',
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # ytsearch:query returns search results
-            result = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            result = ydl.extract_info(f"ytsearch{fetch_count}:{query}", download=False)
             
             if not result or 'entries' not in result:
                 logger.warning("yt-dlp: No results found")
                 return []
             
             videos = []
+            skipped = {"short": 0, "long": 0, "ambient": 0, "no_duration": 0}
+            
             for entry in result['entries']:
-                if not entry:
+                if not entry or len(videos) >= max_results:
                     continue
                     
                 video_id = entry.get('id', '')
                 title = entry.get('title', 'Unknown')
                 description = entry.get('description', '') or ''
-                
-                # Get best thumbnail
-                thumbnails = entry.get('thumbnails', [])
-                thumb_url = ''
-                if thumbnails:
-                    # Prefer high quality thumbnail
-                    for t in reversed(thumbnails):
-                        if t.get('url'):
-                            thumb_url = t['url']
-                            break
-                if not thumb_url:
-                    thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-                
-                # Get duration
                 duration_seconds = entry.get('duration')
-                if duration_seconds:
-                    mins = int(duration_seconds // 60)
-                    duration = f"{mins} mins" if mins > 0 else "< 1 min"
-                else:
-                    duration = "Unknown"
                 
+                # Skip videos without duration
+                if not duration_seconds:
+                    skipped["no_duration"] += 1
+                    continue
+                
+                # Duration filtering
+                if duration_seconds < min_duration_secs:
+                    skipped["short"] += 1
+                    continue
+                if duration_seconds > max_duration_secs:
+                    skipped["long"] += 1
+                    continue
+                
+                # Skip ambient/white noise content
+                title_lower = title.lower()
+                if any(kw in title_lower for kw in SKIP_VIDEO_KEYWORDS):
+                    skipped["ambient"] += 1
+                    continue
+                
+                # Get thumbnail
+                thumbnails = entry.get('thumbnails', [])
+                thumb_url = next((t['url'] for t in reversed(thumbnails) if t.get('url')), 
+                                f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
+                
+                mins = int(duration_seconds // 60)
                 videos.append({
                     "id": video_id,
                     "video_id": video_id,
@@ -397,11 +434,15 @@ def search_youtube_ytdlp(query, max_results=15):
                     "thumbnail": thumb_url,
                     "poster_path": thumb_url,
                     "type": "video",
-                    "duration": duration,
+                    "duration": f"{mins} mins",
+                    "duration_seconds": duration_seconds,
+                    "channel": entry.get('channel', '') or entry.get('uploader', ''),
+                    "view_count": entry.get('view_count', 0),
+                    "upload_date": entry.get('upload_date', ''),
                     "match_reason": "yt-dlp Search"
                 })
             
-            logger.info(f"yt-dlp: Found {len(videos)} videos")
+            logger.info(f"yt-dlp: Found {len(videos)} (skipped: {skipped})")
             return videos
             
     except Exception as e:
