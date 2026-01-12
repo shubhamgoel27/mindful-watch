@@ -2,6 +2,12 @@
 
 **MindfulWatch Recommender** is a Streamlit-based web application designed to combat "doomscrolling" by promoting intentional content consumption. Instead of endless algorithmic feeds, it provides curated, high-quality recommendations for Movies and YouTube videos based on your specific mood, time availability, and interests.
 
+## 🎥 Demo
+
+![MindfulWatch UI Demo](docs/ui_demo.webp)
+
+*Modern dark theme with Netflix/Spotify-inspired design, glassmorphism cards, and gradient accents.*
+
 ## 🚀 Features
 
 -   **Visual Onboarding:** A rich, card-based interface to select your initial content preferences from a mixed pool of popular movies and videos.
@@ -11,8 +17,9 @@
     -   **Streaming Services:** Filter by subscriptions (Netflix, Prime, Disney+, Hulu).
 -   **Focus Mode:** A special mode that prioritizes educational, documentary, and thoughtful content over mindless entertainment.
 -   **Mixed Media Feed:** Recommendations include both feature films (via TMDB) and medium-length YouTube videos (via YouTube Data API), presented in a unified visual feed.
+-   **Two-Stage Personalization:** Advanced retrieval + reranking system that combines user profile (40%) with current mood (60%) for highly personalized results.
+-   **Modern Dark UI:** Netflix/Spotify-inspired design with glassmorphism, gradients, and hover animations.
 -   **Smart Persistence:** Remembers your user profile, preferences, and watch history locally.
--   **Mock Data Fallback:** Fully functional "Demo Mode" that runs out-of-the-box without API keys using a diverse static content pool.
 
 ## 🛠️ Tech Stack
 
