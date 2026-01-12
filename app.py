@@ -89,39 +89,330 @@ with st.sidebar.expander("🛠️ System Status"):
     if not tmdb_ok or not yt_ok:
         st.info("Add your API keys to Streamlit Secrets for full functionality.")
 
-# --- Custom CSS for Uniform Thumbnails & Cards ---
+# --- Modern Dark Theme CSS ---
+# Netflix/Spotify-inspired styling with glassmorphism and gradients
 st.markdown("""
     <style>
-    /* Target onboarding and result images */
+    /* ========================================
+       IMPORT MODERN FONT
+    ======================================== */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* ========================================
+       GLOBAL DARK THEME BASE
+    ======================================== */
+    .stApp {
+        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%) !important;
+    }
+    
+    /* Override Streamlit's default white backgrounds */
+    .stApp > header {
+        background: transparent !important;
+    }
+    
+    .main .block-container {
+        padding-top: 2rem;
+        max-width: 1400px;
+    }
+    
+    /* All text should use Inter font */
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+    
+    /* ========================================
+       SIDEBAR STYLING
+    ======================================== */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #161b22 0%, #0d1117 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #f0f6fc;
+    }
+    
+    /* Sidebar form styling */
+    [data-testid="stSidebar"] [data-testid="stForm"] {
+        background: rgba(22, 27, 34, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1rem;
+    }
+    
+    /* ========================================
+       TYPOGRAPHY
+    ======================================== */
+    h1 {
+        background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em;
+    }
+    
+    h2, h3 {
+        color: #f0f6fc !important;
+        font-weight: 600 !important;
+    }
+    
+    p, span, label {
+        color: #c9d1d9 !important;
+    }
+    
+    /* ========================================
+       INPUTS & FORM ELEMENTS
+    ======================================== */
+    /* Text inputs */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea {
+        background: rgba(22, 27, 34, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 10px !important;
+        color: #f0f6fc !important;
+        backdrop-filter: blur(10px);
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: #7c3aed !important;
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2) !important;
+    }
+    
+    /* Slider */
+    .stSlider > div > div > div > div {
+        background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%) !important;
+    }
+    
+    /* Selectbox & Multiselect */
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background: rgba(22, 27, 34, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 10px !important;
+    }
+    
+    /* Checkbox */
+    .stCheckbox > label > span {
+        color: #c9d1d9 !important;
+    }
+    
+    /* ========================================
+       BUTTONS
+    ======================================== */
+    /* Primary button - gradient style */
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button {
+        background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%) !important;
+        border: none !important;
+        border-radius: 10px !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 0.6rem 1.5rem !important;
+        transition: transform 0.2s, box-shadow 0.2s !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 25px rgba(124, 58, 237, 0.4) !important;
+    }
+    
+    /* Secondary buttons */
+    .stButton > button:not([kind="primary"]) {
+        background: rgba(22, 27, 34, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 10px !important;
+        color: #f0f6fc !important;
+        transition: all 0.2s !important;
+    }
+    
+    .stButton > button:not([kind="primary"]):hover {
+        background: rgba(33, 38, 45, 0.9) !important;
+        border-color: #7c3aed !important;
+    }
+    
+    /* ========================================
+       CARDS & CONTAINERS
+    ======================================== */
+    /* Content cards with glassmorphism */
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+        background: rgba(22, 27, 34, 0.6);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 1rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    /* Bordered containers (cards) */
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stImage"]) {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    [data-testid="stVerticalBlock"]:has(> [data-testid="stImage"]):hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(124, 58, 237, 0.15);
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background: rgba(22, 27, 34, 0.6) !important;
+        border-radius: 10px !important;
+        color: #c9d1d9 !important;
+    }
+    
+    /* ========================================
+       IMAGES & THUMBNAILS
+    ======================================== */
     [data-testid="stImage"] {
         display: flex;
         justify-content: center;
     }
     
     [data-testid="stImage"] img {
-        height: 300px !important;
+        height: 280px !important;
         object-fit: cover !important;
-        object-position: top !important; /* Keep faces/titles visible */
-        border-radius: 10px;
+        object-position: top !important;
+        border-radius: 12px !important;
         width: 100% !important;
+        transition: transform 0.3s ease;
     }
     
-    /* Ensure containers don't collapse */
-    .stColumn > div {
-        display: flex;
-        flex-direction: column;
+    [data-testid="stImage"]:hover img {
+        transform: scale(1.02);
     }
     
-    /* Fixed height title for cards */
+    /* ========================================
+       CUSTOM CARD TITLE
+    ======================================== */
     .card-title {
-        height: 3em;
+        height: 2.8em;
         overflow: hidden;
         text-overflow: ellipsis;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         font-weight: 600;
+        font-size: 1rem;
+        color: #f0f6fc !important;
         margin-bottom: 0.5rem;
+    }
+    
+    /* Match percentage badge */
+    .match-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.3) 0%, rgba(59, 130, 246, 0.3) 100%);
+        border: 1px solid rgba(124, 58, 237, 0.5);
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #c4b5fd !important;
+    }
+    
+    /* ========================================
+       DIVIDERS & MISC
+    ======================================== */
+    hr {
+        border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    /* Info/Warning boxes */
+    .stAlert {
+        background: rgba(22, 27, 34, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+    }
+    
+    /* Spinner */
+    .stSpinner > div {
+        border-top-color: #7c3aed !important;
+    }
+    
+    /* ========================================
+       SCROLLBAR STYLING
+    ======================================== */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #0d1117;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #30363d;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #484f58;
+    }
+    
+    /* ========================================
+       COLUMN LAYOUT FIXES
+    ======================================== */
+    .stColumn > div {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Radio buttons as pills */
+    .stRadio > div {
+        flex-direction: row !important;
+        gap: 0.5rem;
+    }
+    
+    .stRadio > div > label {
+        background: rgba(22, 27, 34, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 20px !important;
+        padding: 0.4rem 1rem !important;
+        transition: all 0.2s !important;
+    }
+    
+    .stRadio > div > label:hover {
+        border-color: #7c3aed !important;
+    }
+    
+    .stRadio > div > label[data-checked="true"] {
+        background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%) !important;
+        border-color: transparent !important;
+    }
+    
+    /* ========================================
+       HERO SECTION STYLING
+    ======================================== */
+    .hero-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 50%, #06b6d4 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0.5rem;
+    }
+    
+    .hero-subtitle {
+        color: #8b949e;
+        font-size: 1.1rem;
+        font-weight: 400;
+    }
+    
+    /* ========================================
+       ANIMATIONS
+    ======================================== */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .stMarkdown, .stImage {
+        animation: fadeIn 0.4s ease-out;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -162,19 +453,29 @@ def save_current_state():
 # --- Views ---
 
 def show_login():
+    # Centered login with hero styling
+    st.markdown("<div style='height: 10vh'></div>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.title("🧘 MindfulWatch")
-        st.write("Your personalized guide to intentional viewing.")
-        username = st.text_input("Who is watching?", placeholder="Enter your name")
-        if st.button("Enter"):
-            if username.strip():
-                is_new = login_user(username.strip())
-                if is_new:
-                    st.session_state.view = 'onboarding'
-                else:
-                    st.session_state.view = 'dashboard'
-                st.rerun()
+        st.markdown("""
+            <div style='text-align: center; margin-bottom: 2rem;'>
+                <h1 class='hero-title'>🧘 MindfulWatch</h1>
+                <p class='hero-subtitle'>Your personalized guide to intentional viewing</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        username = st.text_input("", placeholder="Enter your name...", label_visibility="collapsed")
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            if st.button("✨ Get Started", type="primary", use_container_width=True):
+                if username.strip():
+                    is_new = login_user(username.strip())
+                    if is_new:
+                        st.session_state.view = 'onboarding'
+                    else:
+                        st.session_state.view = 'dashboard'
+                    st.rerun()
 
 def show_onboarding():
     st.title(f"Welcome, {st.session_state.user}! Let's get to know you.")
@@ -291,7 +592,10 @@ def show_dashboard():
             st.session_state.recommendations['videos'] = videos
             if v_err: st.session_state.api_errors.append(v_err)
 
-    st.title("MindfulWatch Recommender 🎬")
+    st.markdown("""
+        <h1 style='margin-bottom: 0.5rem;'>MindfulWatch Recommender</h1>
+        <p style='color: #8b949e; margin-bottom: 1.5rem;'>Personalized content curated just for you</p>
+    """, unsafe_allow_html=True)
     
     # Display API Errors/Warnings if any
     if st.session_state.api_errors:
@@ -355,12 +659,23 @@ def show_dashboard():
                     with col2:
                         icon = "🎥" if is_movie else "▶️"
                         title = data['title']
-                        duration = f"{data.get('runtime', 'N/A')} mins" if is_movie else data.get('duration')
+                        duration = f"{data.get('runtime', 'N/A')} mins" if is_movie else data.get('duration', '')
+                        match_reason = data.get('match_reason', '')
                         
-                        # Use custom HTML for fixed-height title
+                        # Modern styled card title
                         st.markdown(f"<div class='card-title'>{icon} {title}</div>", unsafe_allow_html=True)
-                        st.markdown(f"**Duration:** {duration} | {data.get('match_reason', 'Recommended')}", unsafe_allow_html=True)
-                        st.write(data.get('overview') if is_movie else data.get('description'))
+                        
+                        # Match badge and duration
+                        if match_reason:
+                            st.markdown(f"<span class='match-badge'>{match_reason}</span> &nbsp; ⏱️ {duration}", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"⏱️ {duration}", unsafe_allow_html=True)
+                        
+                        # Description (truncated)
+                        desc = data.get('overview') if is_movie else data.get('description', '')
+                        if desc:
+                            truncated = desc[:200] + "..." if len(desc) > 200 else desc
+                            st.markdown(f"<p style='color: #8b949e; font-size: 0.9rem; margin-top: 0.5rem;'>{truncated}</p>", unsafe_allow_html=True)
                         
                         if is_movie:
                             # Robust Link Logic
