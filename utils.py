@@ -266,16 +266,17 @@ def cache_content_to_db(items, batch_size=500):
         documents.append(text)
         
         # Metadata (flat dict) - enhanced for videos
+        overview_text = item.get('overview') or item.get('description') or ''
         meta = {
-            "title": item.get('title', 'Unknown'),
-            "type": item.get('type', 'unknown'),
-            "poster_path": item.get('poster_path', '') or item.get('thumbnail', ''),
-            "runtime": str(item.get('runtime', '')),
-            "vote_average": str(item.get('vote_average', '')),
-            "video_id": item.get('video_id', ''),
-            "duration": item.get('duration', ''),
-            "channel": item.get('channel', ''),
-            "overview": (item.get('overview', '') or item.get('description', ''))[:500]  # Truncate
+            "title": item.get('title') or 'Unknown',
+            "type": item.get('type') or 'unknown',
+            "poster_path": item.get('poster_path') or item.get('thumbnail') or '',
+            "runtime": str(item.get('runtime') or ''),
+            "vote_average": str(item.get('vote_average') or ''),
+            "video_id": item.get('video_id') or '',
+            "duration": item.get('duration') or '',
+            "channel": item.get('channel') or '',
+            "overview": overview_text[:500] if overview_text else ''
         }
         # Clean None/empty values for Chroma
         meta = {k: v for k, v in meta.items() if v is not None and v != ''}
