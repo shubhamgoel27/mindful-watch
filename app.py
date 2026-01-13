@@ -479,9 +479,9 @@ def show_login():
                         is_new = login_user(username.strip())
                         if is_new:
                             st.session_state.view = 'onboarding'
-                    else:
-                        st.session_state.view = 'dashboard'
-                    st.rerun()
+                        else:
+                            st.session_state.view = 'dashboard'
+                        st.rerun()
 
 def show_onboarding():
     # Initialize onboarding state
