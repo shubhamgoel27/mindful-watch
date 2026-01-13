@@ -57,16 +57,16 @@ def load_embedding_model():
     Loads the Qwen3-Embedding-0.6B model for high-quality embeddings.
     Uses a singleton pattern to load only once per process.
     
-    Note: First run will download ~2.5GB. Model is larger but provides
-    significantly better semantic understanding and multilingual support.
+    Note: First run will download ~1.2GB. Model provides better semantic
+    understanding and multilingual support than MiniLM.
     """
     global _embedding_model
     if _embedding_model is None:
-        logger.info("Loading Qwen3 embedding model (first time, ~2.5GB download)...")
+        logger.info("Loading Qwen3-Embedding-0.6B model (first time)...")
         try:
-            # Qwen3-Embedding-0.6B - better quality than MiniLM
-            _embedding_model = SentenceTransformer('Alibaba-NLP/gte-Qwen2-1.5B-instruct')
-            logger.info("Qwen3 embedding model loaded successfully")
+            # Qwen3-Embedding-0.6B - small but high quality
+            _embedding_model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+            logger.info("Qwen3-Embedding-0.6B model loaded successfully")
         except Exception as e:
             # Fallback to MiniLM if Qwen3 fails to load
             logger.warning(f"Failed to load Qwen3 model: {e}. Falling back to MiniLM.")
