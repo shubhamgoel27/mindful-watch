@@ -191,29 +191,50 @@ def create_user_profile_embedding(liked_titles, onboarding_content):
     return embedding
 
 # --- Vector Database Setup (ChromaDB) ---
+
+# HNSW Index Optimization Parameters
+# - M: Number of connections per node (higher = better recall, more memory)
+# - ef_construction: Search depth during index building (higher = better quality, slower build)
+# - ef_search: Search depth during queries (higher = better recall, slower queries)
+HNSW_CONFIG = {
+    "hnsw:M": 16,                  # Default is 16, good balance
+    "hnsw:construction_ef": 100,   # Default is 100, sufficient for quality
+    "hnsw:search_ef": 50,          # Increased from default 10 for better recall
+    "hnsw:space": "cosine",        # Cosine similarity for text embeddings
+}
+
 @st.cache_resource
 def get_vector_collection():
-    """Initializes and returns the persistent ChromaDB collection."""
-    logger.info("Initializing ChromaDB collection...")
+    """
+    Initializes and returns the persistent ChromaDB collection with optimized HNSW settings.
+    
+    Optimizations:
+    - M=16: Balanced connectivity for recall vs memory
+    - ef_construction=100: Good quality index
+    - search_ef=50: Fast queries with good recall
+    - Cosine distance for text embeddings
+    """
+    logger.info("Initializing ChromaDB collection with optimized HNSW settings...")
     try:
         client = chromadb.PersistentClient(path="./mindful_watch_db")
         
-        # We will use the same model for Chroma's embedding function
-        # Or let Chroma use its default (which is also all-MiniLM-L6-v2 usually)
-        # But to be safe and offline-capable, let's use our local SentenceTransformer logic via a custom function or just pass raw embeddings.
-        # For simplicity in this demo, we'll generate embeddings manually using our cached model and pass them to Chroma.
-        
-        collection = client.get_or_create_collection(name="mindful_content")
-        logger.info(f"ChromaDB collection initialized successfully")
+        # Create collection with HNSW optimization metadata
+        collection = client.get_or_create_collection(
+            name="mindful_content",
+            metadata=HNSW_CONFIG
+        )
+        logger.info(f"ChromaDB collection initialized (HNSW optimized)")
         return collection
     except Exception as e:
         logger.error(f"ChromaDB Init Error: {type(e).__name__}: {e}")
         logger.debug(traceback.format_exc())
         return None
 
-def cache_content_to_db(items):
+def cache_content_to_db(items, batch_size=500):
     """
     Takes a list of content items (dicts), generates embeddings, and saves to ChromaDB.
+    Uses batch processing for memory efficiency and faster indexing.
+    
     Expected item keys: id, title, overview/description, type, poster_path, etc.
     """
     collection = get_vector_collection()
@@ -223,24 +244,28 @@ def cache_content_to_db(items):
     ids = []
     documents = []
     metadatas = []
-    embeddings = []
 
     model = load_embedding_model()
 
     for item in items:
         # Unique ID string
         item_id = str(item.get('id', ''))
-        # Fix mock IDs collision if re-generating
+        # Skip duplicates
         if not item_id or item_id in ids: 
             continue
             
         ids.append(item_id)
         
-        # Text to embed: Title + Overview/Description
-        text = f"{item.get('title', '')}. {item.get('overview', '') or item.get('description', '')}"
+        # Text to embed: Title + Description + Channel (for videos)
+        text_parts = [item.get('title', '')]
+        if item.get('overview') or item.get('description'):
+            text_parts.append(item.get('overview', '') or item.get('description', ''))
+        if item.get('channel'):
+            text_parts.append(f"Channel: {item.get('channel')}")
+        text = ". ".join(filter(None, text_parts))
         documents.append(text)
         
-        # Metadata (flat dict)
+        # Metadata (flat dict) - enhanced for videos
         meta = {
             "title": item.get('title', 'Unknown'),
             "type": item.get('type', 'unknown'),
@@ -249,26 +274,36 @@ def cache_content_to_db(items):
             "vote_average": str(item.get('vote_average', '')),
             "video_id": item.get('video_id', ''),
             "duration": item.get('duration', ''),
-            "overview": (item.get('overview', '') or item.get('description', ''))[:1000] # Truncate for metadata
+            "channel": item.get('channel', ''),
+            "overview": (item.get('overview', '') or item.get('description', ''))[:500]  # Truncate
         }
-        # Clean None values for Chroma
-        meta = {k: v for k, v in meta.items() if v is not None}
+        # Clean None/empty values for Chroma
+        meta = {k: v for k, v in meta.items() if v is not None and v != ''}
         metadatas.append(meta)
 
-    # Generate embeddings batch
-    if documents:
-        embeddings = model.encode(documents).tolist()
+    if not documents:
+        return
+
+    # Process in batches for memory efficiency
+    total_cached = 0
+    for i in range(0, len(documents), batch_size):
+        batch_ids = ids[i:i+batch_size]
+        batch_docs = documents[i:i+batch_size]
+        batch_metas = metadatas[i:i+batch_size]
+        
+        # Generate embeddings for batch
+        batch_embeddings = model.encode(batch_docs).tolist()
         
         try:
             collection.upsert(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=documents
+                ids=batch_ids,
+                embeddings=batch_embeddings,
+                metadatas=batch_metas,
+                documents=batch_docs
             )
-            logger.info(f"Cached {len(ids)} items to Vector DB.")
+            total_cached += len(batch_ids)
         except Exception as e:
-            logger.error(f"Error caching to ChromaDB: {type(e).__name__}: {e}")
+            logger.error(f"Error caching batch to ChromaDB: {type(e).__name__}: {e}")
             logger.debug(traceback.format_exc())
 
 def query_vector_db(query_text, n_results=10, where_filter=None):
