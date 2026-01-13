@@ -466,15 +466,31 @@ def show_login():
         
         username = st.text_input("Name", placeholder="Enter your name...", label_visibility="collapsed")
         
+        # Show password field only if admin username is entered
+        admin_password_input = None
+        if username.strip() == config.ADMIN_USERNAME:
+            admin_password_input = st.text_input(
+                "Admin Password", 
+                type="password", 
+                placeholder="Enter admin password...",
+                label_visibility="collapsed"
+            )
+        
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
         with col_btn2:
             if st.button("✨ Get Started", type="primary", width="stretch"):
                 if username.strip():
                     # Check for power user
-                    if username.strip() == "power_user_27":
-                        st.session_state.user = username.strip()
-                        st.session_state.view = 'admin'
-                        st.rerun()
+                    if username.strip() == config.ADMIN_USERNAME:
+                        # Verify password
+                        if not config.ADMIN_PASSWORD:
+                            st.error("Admin access not configured on this deployment.")
+                        elif admin_password_input == config.ADMIN_PASSWORD:
+                            st.session_state.user = username.strip()
+                            st.session_state.view = 'admin'
+                            st.rerun()
+                        else:
+                            st.error("Invalid admin password.")
                     else:
                         is_new = login_user(username.strip())
                         if is_new:

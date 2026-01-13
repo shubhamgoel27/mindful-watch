@@ -61,3 +61,8 @@ FOCUS_GENRES = [18, 99, 36]
 
 # User Data Storage
 USER_DATA_FILE = "user_data.json"
+
+# Admin/Power User Settings
+# Password is stored in Streamlit Secrets (cloud) or env var (local), never in code
+ADMIN_USERNAME = "power_user_27"
+ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", None)  # None = admin disabled if not configured
