@@ -805,7 +805,7 @@ def show_admin():
     st.divider()
     
     # Admin Actions in Tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🗑️ Clear Data", "🌱 Seed Content", "🎬 Fetch Videos", "👀 View Content"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗑️ Clear Data", "🌱 Seed Content", "📹 Fetch Videos", "🎬 Fetch Movies", "👀 View Content"])
     
     # Tab 1: Clear Data
     with tab1:
@@ -866,20 +866,45 @@ def show_admin():
                 st.rerun()
         
         st.divider()
-        st.markdown("##### Full Seed (Slow - Run in Background)")
-        st.code("uv run python seed_database.py", language="bash")
-        st.info("Run this command in terminal for full 10K+ video seeding.")
+        st.markdown("##### Full Seed (All Content)")
+        st.info("⏱️ This will fetch ~500 movies + ~10K videos. Takes 1-2 hours.")
+        
+        if st.button("🚀 Run Full Seed", type="secondary"):
+            with st.spinner("Starting full database seeding..."):
+                try:
+                    from seed_database import seed_movies, seed_bollywood, seed_videos, YOUTUBE_QUERIES, EXTRA_VIDEO_QUERIES
+                    
+                    # Seed movies
+                    st.write("📽️ Seeding movies...")
+                    movies = seed_movies(max_per_genre=25)
+                    st.write(f"  → {movies} Western movies")
+                    
+                    # Seed Bollywood
+                    st.write("🎬 Seeding Indian movies...")
+                    bollywood = seed_bollywood()
+                    st.write(f"  → {bollywood} Indian movies")
+                    
+                    # Seed videos
+                    st.write("📹 Seeding videos (this takes a while)...")
+                    all_queries = YOUTUBE_QUERIES + EXTRA_VIDEO_QUERIES
+                    videos = seed_videos(queries=all_queries[:100], results_per_query=15)
+                    st.write(f"  → {videos} videos")
+                    
+                    st.success(f"✅ Full seed complete! Added {movies + bollywood} movies, {videos} videos")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
     
     # Tab 3: Fetch Videos
     with tab3:
         st.markdown("#### Fetch Videos by Query")
         
-        query = st.text_input("Search query", placeholder="e.g. quantum physics documentary")
+        query = st.text_input("Search query", placeholder="e.g. quantum physics documentary", key="yt_query")
         col1, col2 = st.columns(2)
         with col1:
-            max_results = st.slider("Max results", 5, 50, 20)
+            max_results = st.slider("Max results", 5, 50, 20, key="yt_max")
         with col2:
-            save_to_db = st.checkbox("Save to database", value=True)
+            save_to_db = st.checkbox("Save to database", value=True, key="yt_save")
         
         if st.button("🔍 Search YouTube", type="primary"):
             if query:
@@ -903,7 +928,7 @@ def show_admin():
                                 with col2:
                                     st.write(f"**Duration:** {v.get('duration', 'N/A')}")
                                     st.write(f"**Channel:** {v.get('channel', 'N/A')}")
-                                    desc = v.get('description', '')[:200]
+                                    desc = (v.get('description') or '')[:200]
                                     if desc:
                                         st.write(f"_{desc}..._")
                     else:
@@ -911,12 +936,108 @@ def show_admin():
             else:
                 st.warning("Enter a search query")
     
-    # Tab 4: View Content
+    # Tab 4: Fetch Movies (TMDB)
     with tab4:
+        st.markdown("#### Fetch Movies from TMDB")
+        
+        tmdb_ok = config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY"
+        if not tmdb_ok:
+            st.error("TMDB API key not configured!")
+        else:
+            # Search by title
+            st.markdown("##### Search by Title")
+            movie_query = st.text_input("Movie title", placeholder="e.g. Inception", key="tmdb_query")
+            
+            if st.button("🎬 Search TMDB", type="primary"):
+                if movie_query:
+                    with st.spinner(f"Searching for '{movie_query}'..."):
+                        import requests
+                        url = f"https://api.themoviedb.org/3/search/movie"
+                        params = {
+                            "api_key": config.TMDB_API_KEY,
+                            "query": movie_query,
+                            "language": "en-US",
+                            "page": 1
+                        }
+                        resp = requests.get(url, params=params)
+                        if resp.ok:
+                            results = resp.json().get("results", [])
+                            if results:
+                                st.success(f"Found {len(results)} movies!")
+                                
+                                # Process and save
+                                movies = []
+                                for m in results[:20]:
+                                    m["type"] = "movie"
+                                    m["poster_path"] = f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get('poster_path') else ""
+                                    movies.append(m)
+                                
+                                utils.cache_content_to_db(movies)
+                                st.info(f"✅ Saved {len(movies)} movies to database")
+                                
+                                # Display
+                                for m in movies[:5]:
+                                    with st.expander(f"🎬 {m.get('title', 'Unknown')}"):
+                                        col1, col2 = st.columns([1, 3])
+                                        with col1:
+                                            if m.get('poster_path'):
+                                                st.image(m['poster_path'], width=100)
+                                        with col2:
+                                            st.write(f"**Year:** {m.get('release_date', 'N/A')[:4] if m.get('release_date') else 'N/A'}")
+                                            st.write(f"**Rating:** {m.get('vote_average', 'N/A')}")
+                                            st.write(m.get('overview', '')[:200])
+                            else:
+                                st.warning("No movies found")
+                        else:
+                            st.error(f"TMDB Error: {resp.status_code}")
+            
+            st.divider()
+            st.markdown("##### Discover by Genre/Year")
+            
+            genres = {
+                28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
+                80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+                14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+                9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 53: "Thriller"
+            }
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                selected_genre = st.selectbox("Genre", list(genres.values()), key="tmdb_genre")
+                genre_id = [k for k, v in genres.items() if v == selected_genre][0]
+            with col2:
+                year = st.number_input("Year (optional)", min_value=1980, max_value=2025, value=2023, key="tmdb_year")
+            with col3:
+                language = st.selectbox("Language", ["en", "hi", "ta", "te", "ko", "ja"], key="tmdb_lang")
+            
+            if st.button("🔎 Discover Movies"):
+                with st.spinner("Discovering movies..."):
+                    movies = utils.fetch_tmdb_discover(
+                        params={
+                            "with_genres": genre_id,
+                            "primary_release_year": year,
+                            "with_original_language": language,
+                            "vote_count.gte": 50,
+                            "sort_by": "popularity.desc"
+                        },
+                        max_pages=2
+                    )
+                    
+                    if movies:
+                        for m in movies:
+                            m["type"] = "movie"
+                        utils.cache_content_to_db(movies)
+                        st.success(f"✅ Added {len(movies)} {selected_genre} movies from {year}!")
+                        st.rerun()
+                    else:
+                        st.warning("No movies found with these filters")
+    
+    # Tab 5: View Content
+    with tab5:
         st.markdown("#### Sample Database Content")
         
         content_type = st.selectbox("Filter by type", ["All", "Movies", "Videos"])
-        sample_size = st.slider("Sample size", 5, 50, 20)
+        sample_size = st.slider("Sample size", 5, 50, 20, key="sample_size")
         
         if st.button("👀 Load Sample"):
             try:
