@@ -5,5 +5,9 @@ __pycache__/
 user_data.json
 .DS_Store
 mindful_watch_db/
+chroma_db/
 *.swp
 *.swo
+
+# Streamlit secrets (NEVER commit)
+.streamlit/secrets.toml
