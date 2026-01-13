@@ -1,93 +1,94 @@
 # MindfulWatch - Project Changes Summary
 
-**Session:** January 8-11, 2026  
-**Focus:** YouTube quota bypass, search improvements, personalization, cloud deployment, UI modernization
+**Latest Update:** January 12, 2026  
+**Focus:** Content curation, embedding model upgrade, admin panel, security
 
 ---
 
-## 1. YouTube API Quota Bypass
+## 1. Embedding Model Upgrade
 
-### Problem
-YouTube Data API quota exceeded (403 error), limiting video recommendations.
+Switched from `all-MiniLM-L6-v2` (22M params) to `Qwen/Qwen3-Embedding-0.6B` (600M params).
 
-### Solution
-Integrated **yt-dlp** as a quota-free fallback that scrapes YouTube directly.
-
-### Fallback Order
-```
-YouTube API → yt-dlp → Vector DB cache → Static content
-```
-
----
-
-## 2. Fixed YouTube Search Query Issues
-
-### Problem
-Search queries were too long (244+ chars) by concatenating all liked titles + keywords.
-
-### Solution
-- Use only **top 3-5 keywords** (not 20+)
-- Limit query length to 100 chars
-
----
-
-## 3. Embedding Model Singleton
-
-### Problem
-Model was reloading on every `cache_content_to_db()` call.
-
-### Solution
-Module-level singleton pattern that works in both Streamlit and standalone scripts.
-
----
-
-## 4. Expanded Vector Database
-
-| Metric | Before | After |
+| Aspect | Before | After |
 |--------|--------|-------|
-| Total items | 89 | 3,495 |
-| Movies | 26 | 641 |
-| Videos | 63 | 2,854 |
+| Model | MiniLM-L6-v2 | Qwen3-Embedding-0.6B |
+| Embedding Dims | 384 | 1024 |
+| Quality | Basic | Multilingual, better semantic |
 
 ---
 
-## 5. Two-Stage Retrieval + Reranking
+## 2. ChromaDB Optimizations
 
-Industry-standard two-stage system:
-- **STAGE 1: RETRIEVAL** - Mood as primary query, multi-channel search
-- **STAGE 2: RERANKING** - Profile (40%) + Mood (60%) similarity scoring
+HNSW index tuning for faster queries and efficient storage:
 
----
-
-## 6. Automatic Cloud Seeding
-
-Automatic seeding on app startup using `@st.cache_resource`. Seeds if DB has < 200 items.
-
----
-
-## 7. UI Modernization
-
-Netflix/Spotify-inspired dark theme with:
-
-| Element | Before | After |
-|---------|--------|-------|
-| Background | Light gray | Dark gradient (#0d1117) |
-| Cards | Basic borders | Glassmorphism + glow |
-| Buttons | Default | Gradient (purple→blue) |
-| Typography | System fonts | Inter (Google Fonts) |
-| Hover states | None | Lift + glow animation |
+```python
+HNSW_CONFIG = {
+    "hnsw:M": 16,                  # Balanced connectivity
+    "hnsw:construction_ef": 100,   # Quality index
+    "hnsw:search_ef": 50,          # 5x faster queries
+    "hnsw:space": "cosine",        # Text embeddings
+}
+```
 
 ---
 
-## File Summary
+## 3. Video Duration Filtering
 
-| File | Changes |
+Content curation to skip shorts and ambient content:
+
+| Filter | Value |
+|--------|-------|
+| Minimum duration | 5 minutes |
+| Maximum duration | 120 minutes |
+| Skip keywords | "10 hour", "sleep music", "white noise", etc. |
+
+---
+
+## 4. Expanded Content Library
+
+Target: 500+ movies, 10,000+ videos
+
+| Content | Sources |
+|---------|---------|
+| Western movies | TMDB genres, top-rated, popular |
+| Indian movies | Hindi, Tamil, Telugu (Bollywood/Tollywood) |
+| Videos | 500+ curated YouTube queries |
+
+---
+
+## 5. Power User Admin Panel
+
+Password-protected admin panel for `power_user_27`:
+
+| Tab | Features |
+|-----|----------|
+| Clear Data | Clear DB, clear user data |
+| Seed Content | Quick seed + full seed button |
+| Fetch Videos | YouTube search by query |
+| Fetch Movies | TMDB search + discover by genre/year/language |
+| View Content | Sample database content |
+
+**Security:** Password stored in Streamlit Secrets (`ADMIN_PASSWORD`), never in code.
+
+---
+
+## 6. Tinder-Style Onboarding
+
+Card-by-card swipe interface for preferences:
+- Like / Skip / Nope buttons
+- Minimum 5 ratings required
+- Progress indicator
+
+---
+
+## Key Files
+
+| File | Purpose |
 |------|---------|
-| `utils.py` | yt-dlp, two-stage reranking, user profile embedding |
-| `app.py` | Startup seeding, modern dark theme CSS |
-| `seed_database.py` | **NEW** - Comprehensive seeding script |
-| `db_stats.py` | **NEW** - Database management tool |
-| `seed_config.py` | **NEW** - Essential queries for cloud |
+| `utils.py` | Qwen3 model, HNSW config, video filtering |
+| `app.py` | Admin panel, Tinder onboarding, modern UI |
+| `seed_database.py` | Full seeding with Bollywood support |
+| `config.py` | ADMIN_PASSWORD secret handling |
 
 ---
 
@@ -97,9 +98,22 @@ Netflix/Spotify-inspired dark theme with:
 # Run app
 uv run streamlit run app.py
 
-# Full database seed
+# Full database seed (local)
 uv run python seed_database.py
 
-# View database stats
+# Clear and reset database
+uv run python db_stats.py clear_all
+
+# View stats
 uv run python db_stats.py stats
 ```
+
+---
+
+## Secrets Required
+
+| Secret | Purpose |
+|--------|---------|
+| `TMDB_API_KEY` | Movie data |
+| `YOUTUBE_API_KEY` | Video metadata (optional with yt-dlp) |
+| `ADMIN_PASSWORD` | Power user access |
