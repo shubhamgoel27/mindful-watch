@@ -54,22 +54,21 @@ _embedding_model = None
 
 def load_embedding_model():
     """
-    Loads the Qwen3-Embedding-0.6B model for high-quality embeddings.
+    Loads the BGE-small embedding model for high-quality embeddings.
     Uses a singleton pattern to load only once per process.
     
-    Note: First run will download ~1.2GB. Model provides better semantic
-    understanding and multilingual support than MiniLM.
+    Model: BAAI/bge-small-en-v1.5 (~130MB, 384 dims)
+    - State-of-the-art for its size class
+    - Works well on Streamlit Cloud (1GB RAM)
     """
     global _embedding_model
     if _embedding_model is None:
-        logger.info("Loading Qwen3-Embedding-0.6B model (first time)...")
+        logger.info("Loading BGE-small embedding model...")
         try:
-            # Qwen3-Embedding-0.6B - small but high quality
-            _embedding_model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
-            logger.info("Qwen3-Embedding-0.6B model loaded successfully")
+            _embedding_model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+            logger.info("BGE-small model loaded successfully")
         except Exception as e:
-            # Fallback to MiniLM if Qwen3 fails to load
-            logger.warning(f"Failed to load Qwen3 model: {e}. Falling back to MiniLM.")
+            logger.warning(f"Failed to load BGE model: {e}. Falling back to MiniLM.")
             _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
             logger.info("MiniLM fallback model loaded successfully")
     return _embedding_model
