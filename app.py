@@ -631,7 +631,18 @@ def show_dashboard():
         
         submit_button = st.form_submit_button("🔍 Get Recommendations", type="primary", width="stretch")
 
+    # Clear search button (outside form)
+    if st.sidebar.button("🗑️ Clear Search", width="stretch"):
+        st.session_state.recommendations = {'movies': [], 'videos': []}
+        st.session_state.user_data['preferences']['mood_goal'] = ""
+        st.session_state.submitted = False
+        save_current_state()
+        st.rerun()
+
     if submit_button:
+        # Clear old results first to ensure fresh state
+        st.session_state.recommendations = {'movies': [], 'videos': []}
+        
         st.session_state.user_data['preferences'] = {
             "max_watch_time": max_watch_time, 
             "mood_goal": mood_goal
@@ -648,6 +659,7 @@ def show_dashboard():
             
             logger.info(f"Dashboard search: liked_titles={len(liked_titles) if liked_titles else 0}, onboarding_content={len(onboarding_content) if onboarding_content else 0}")
             logger.info(f"Dashboard search: liked_content is {'set' if liked_content else 'None'}")
+            logger.info(f"Dashboard search: mood_goal='{mood_goal}'")
             
             # Build search query: use mood if provided
             search_query = mood_goal if mood_goal else ""

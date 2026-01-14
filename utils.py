@@ -918,84 +918,45 @@ def fetch_video_recommendations(mood, max_time_mins=40, liked_content=None):
     else:
         search_keywords = ""
     
-    # === STAGE 1: RETRIEVAL ===
-    # Priority: mood > keywords > generic fallback
-    # Use mood as primary search query - it's the clearest signal of current intent
+    # === STAGE 1: RETRIEVAL (from ChromaDB only) ===
+    # Search ChromaDB by mood keywords
     if mood:
-        search_query = mood  # Use mood directly (e.g., "relaxing", "learn science")
-        logger.info(f"Stage 1: Searching by mood: '{search_query}'")
+        search_query = mood
+        logger.info(f"Stage 1: Searching ChromaDB by mood: '{search_query}'")
     elif search_keywords:
-        search_query = search_keywords  # Fallback to extracted keywords
-        logger.info(f"Stage 1: Searching by keywords: '{search_query}'")
+        search_query = search_keywords
+        logger.info(f"Stage 1: Searching ChromaDB by keywords: '{search_query}'")
     else:
-        search_query = "documentary video essay"  # Generic fallback
+        search_query = "documentary video essay"
         logger.info(f"Stage 1: Using generic fallback query: '{search_query}'")
     
     candidates = []
     error_msg = None
     
-    # Try yt-dlp first (no quota limits)
-    if YT_DLP_AVAILABLE:
-        logger.info(f"yt-dlp: Searching for '{search_query}'")
-        yt_results = search_youtube_ytdlp(search_query, max_results=30)
-        if yt_results:
-            candidates.extend(yt_results)
-            logger.info(f"yt-dlp: Got {len(yt_results)} results")
-    
-    # Try YouTube API as backup
-    if len(candidates) < 20 and config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY":
-        logger.info("YouTube API: Supplementing with API results...")
-        try:
-            youtube = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
-            res = youtube.search().list(
-                q=search_query, part='id,snippet', 
-                maxResults=20, type='video', videoDuration='long'
-            ).execute()
-            
-            for item in res.get('items', []):
-                thumbs = item['snippet']['thumbnails']
-                thumb_url = thumbs.get('high', thumbs.get('medium', thumbs.get('default')))['url']
-                candidates.append({
-                    "title": item['snippet']['title'], 
-                    "description": item['snippet']['description'],
-                    "thumbnail": thumb_url, "poster_path": thumb_url,
-                    "video_id": item['id']['videoId'], "id": item['id']['videoId'],
-                    "type": "video", "duration": "20 mins",
-                    "overview": item['snippet']['description']
-                })
-            logger.info(f"YouTube API: Added {len(res.get('items', []))} results")
-        except Exception as e:
-            logger.warning(f"YouTube API failed: {e}")
-    
-    # Also get from vector DB for diversity (using profile embedding if available)
-    if user_profile_embedding is not None:
-        logger.info("Vector DB: Searching by user profile embedding...")
-        db_results = query_vector_db(search_query, n_results=30, where_filter={"type": "video"})
-        if db_results:
-            candidates.extend(db_results)
-            logger.info(f"Vector DB: Added {len(db_results)} cached videos")
+    # Search ChromaDB by mood query
+    logger.info(f"ChromaDB: Searching for '{search_query}'...")
+    db_results = query_vector_db(search_query, n_results=100, where_filter={"type": "video"})
+    if db_results:
+        candidates.extend(db_results)
+        logger.info(f"ChromaDB: Found {len(db_results)} videos matching mood")
     
     # Deduplicate by ID
     seen = set()
     unique_candidates = []
     for c in candidates:
-        cid = c.get('video_id') or c.get('id')
+        cid = c.get('video_id') or c.get('id') or c.get('title')
         if cid and cid not in seen:
             seen.add(cid)
             unique_candidates.append(c)
     
-    logger.info(f"Stage 1 complete: {len(unique_candidates)} unique candidates")
-    
-    # Cache new content
-    if unique_candidates:
-        cache_content_to_db(unique_candidates)
+    logger.info(f"Stage 1 complete: {len(unique_candidates)} unique candidates from ChromaDB")
     
     # Fallback to static pool if nothing found
     if not unique_candidates:
-        logger.warning("No candidates found, using static fallback")
+        logger.warning("No candidates in ChromaDB, using static fallback")
         pool = [x for x in get_static_content_pool() if x['type'] == 'video']
         unique_candidates = pool[:50]
-        error_msg = "Showing curated content."
+        error_msg = "No indexed content found. Please seed the database or try a different mood."
     
     # === STAGE 2: RERANKING ===
     logger.info(f"Stage 2: Reranking {len(unique_candidates)} candidates...")
