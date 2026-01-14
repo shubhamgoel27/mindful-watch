@@ -78,7 +78,7 @@ def initialize_database():
 # Initialize database on startup
 _db_init_result = initialize_database()
 
-st.set_page_config(page_title="MindfulWatch Recommender v1.1", layout="wide", page_icon="🧘")
+st.set_page_config(page_title="Unrot Me", layout="wide", page_icon="🧠")
 
 # --- Debug / System Status (Sidebar) ---
 with st.sidebar.expander("🛠️ System Status"):
@@ -459,8 +459,8 @@ def show_login():
     with col2:
         st.markdown("""
             <div style='text-align: center; margin-bottom: 2rem;'>
-                <h1 class='hero-title'>🧘 MindfulWatch</h1>
-                <p class='hero-subtitle'>Your personalized guide to intentional viewing</p>
+                <h1 class='hero-title'>🧠 Unrot Me</h1>
+                <p class='hero-subtitle'>Doomscrolling lost. You won.</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -672,7 +672,7 @@ def show_dashboard():
             if v_err: st.session_state.api_errors.append(v_err)
 
     st.markdown("""
-        <h1 style='margin-bottom: 0.5rem;'>MindfulWatch Recommender</h1>
+        <h1 style='margin-bottom: 0.5rem;'>🧠 Unrot Me</h1>
         <p style='color: #8b949e; margin-bottom: 1.5rem;'>Personalized content curated just for you</p>
     """, unsafe_allow_html=True)
     
