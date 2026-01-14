@@ -1,83 +1,94 @@
-# MindfulWatch - Project Changes Summary
+# Unrot Me - Project Changes Summary
 
-**Latest Update:** January 12, 2026  
-**Focus:** Content curation, embedding model upgrade, admin panel, security
-
----
-
-## 1. Embedding Model Upgrade
-
-Switched from `all-MiniLM-L6-v2` (22M params) to `Qwen/Qwen3-Embedding-0.6B` (600M params).
-
-| Aspect | Before | After |
-|--------|--------|-------|
-| Model | MiniLM-L6-v2 | Qwen3-Embedding-0.6B |
-| Embedding Dims | 384 | 1024 |
-| Quality | Basic | Multilingual, better semantic |
+**Latest Update:** January 13, 2026  
+**Focus:** Hybrid scoring system, diversity filter, UI rebrand
 
 ---
 
-## 2. ChromaDB Optimizations
+## 1. App Rebrand
 
-HNSW index tuning for faster queries and efficient storage:
+Renamed from MindfulWatch to **Unrot Me** with Gen-Z focused messaging.
+
+| Element | Before | After |
+|---------|--------|-------|
+| Name | MindfulWatch | **Unrot Me** |
+| Icon | 🧘 | **🧠** |
+| Tagline | "Your personalized guide..." | **"Doomscrolling lost. You won."** |
+
+---
+
+## 2. Hybrid Scoring System
+
+Replaced simple weighted average with geometric mean + bonuses + diversity penalty.
+
+### Formula
+
+```python
+# Geometric mean (both mood and profile must be good)
+base_score = sqrt(profile_score * mood_score)
+
+# Bonus for exceptional matches (capped at 15% each)
+mood_bonus = max(0, mood_score - 0.4) * 0.15
+profile_bonus = max(0, profile_score - 0.4) * 0.15
+
+final_score = base_score + mood_bonus + profile_bonus
+```
+
+### Diversity Penalty
+
+Items >85% similar to already-selected results get ×0.7 penalty.
+
+---
+
+## 3. Embedding Model
+
+Using `BAAI/bge-small-en-v1.5` (~130MB, 384 dims) for cloud compatibility.
+
+---
+
+## 4. ChromaDB Optimizations
 
 ```python
 HNSW_CONFIG = {
-    "hnsw:M": 16,                  # Balanced connectivity
-    "hnsw:construction_ef": 100,   # Quality index
-    "hnsw:search_ef": 50,          # 5x faster queries
-    "hnsw:space": "cosine",        # Text embeddings
+    "hnsw:M": 16,
+    "hnsw:construction_ef": 100,
+    "hnsw:search_ef": 50,
+    "hnsw:space": "cosine",
 }
 ```
 
 ---
 
-## 3. Video Duration Filtering
-
-Content curation to skip shorts and ambient content:
+## 5. Video Duration Filtering
 
 | Filter | Value |
 |--------|-------|
-| Minimum duration | 5 minutes |
-| Maximum duration | 120 minutes |
-| Skip keywords | "10 hour", "sleep music", "white noise", etc. |
+| Min duration | 5 minutes |
+| Max duration | 120 minutes |
+| Skip keywords | "10 hour", "sleep music", "white noise" |
 
 ---
 
-## 4. Expanded Content Library
+## 6. Power User Admin Panel
 
-Target: 500+ movies, 10,000+ videos
-
-| Content | Sources |
-|---------|---------|
-| Western movies | TMDB genres, top-rated, popular |
-| Indian movies | Hindi, Tamil, Telugu (Bollywood/Tollywood) |
-| Videos | 500+ curated YouTube queries |
-
----
-
-## 5. Power User Admin Panel
-
-Password-protected admin panel for `power_user_27`:
+Password-protected admin panel (`power_user_27` + `ADMIN_PASSWORD`):
 
 | Tab | Features |
 |-----|----------|
-| Clear Data | Clear DB, clear user data |
-| Seed Content | Quick seed + full seed button |
-| Fetch Videos | YouTube search by query |
-| Fetch Movies | TMDB search + discover by genre/year/language |
-| View Content | Sample database content |
-
-**Security:** Password stored in Streamlit Secrets (`ADMIN_PASSWORD`), never in code.
+| Clear Data | Clear DB, user data |
+| Seed Content | Quick seed + full seed |
+| Fetch Videos | YouTube search |
+| Fetch Movies | TMDB search + discover |
+| View Content | Database samples |
 
 ---
 
-## 6. Tinder-Style Onboarding
+## 7. Tinder-Style Onboarding
 
-Card-by-card swipe interface for preferences:
+- Centered image cards with max-height
 - Like / Skip / Nope buttons
-- Minimum 5 ratings required
 - Progress indicator
+- Min 5 ratings required
 
 ---
 
@@ -85,10 +96,10 @@ Card-by-card swipe interface for preferences:
 
 | File | Purpose |
 |------|---------|
-| `utils.py` | Qwen3 model, HNSW config, video filtering |
-| `app.py` | Admin panel, Tinder onboarding, modern UI |
-| `seed_database.py` | Full seeding with Bollywood support |
-| `config.py` | ADMIN_PASSWORD secret handling |
+| `utils.py` | Hybrid scoring, diversity filter, embedding model |
+| `app.py` | Admin panel, onboarding, rebranded UI |
+| `seed_database.py` | Full seeding |
+| `config.py` | Secret handling |
 
 ---
 
@@ -98,11 +109,8 @@ Card-by-card swipe interface for preferences:
 # Run app
 uv run streamlit run app.py
 
-# Full database seed (local)
+# Full database seed
 uv run python seed_database.py
-
-# Clear and reset database
-uv run python db_stats.py clear_all
 
 # View stats
 uv run python db_stats.py stats
@@ -115,5 +123,5 @@ uv run python db_stats.py stats
 | Secret | Purpose |
 |--------|---------|
 | `TMDB_API_KEY` | Movie data |
-| `YOUTUBE_API_KEY` | Video metadata (optional with yt-dlp) |
+| `YOUTUBE_API_KEY` | Video metadata |
 | `ADMIN_PASSWORD` | Power user access |

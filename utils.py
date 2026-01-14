@@ -1031,11 +1031,12 @@ def semantic_rerank(items, query_text, text_key='overview', top_k=10):
 
 def rerank_by_profile_and_mood(items, user_profile_embedding, mood, top_k=50):
     """
-    Two-factor reranking for personalized recommendations.
+    Two-factor reranking with hybrid scoring and diversity penalty.
     
-    Combines two signals:
-    1. Profile similarity - how well the item matches user's overall preferences
-    2. Mood similarity - how well the item matches user's current intent
+    Combines:
+    1. Geometric mean of profile + mood (balanced, both must be good)
+    2. Bonus for exceptional single-signal matches (capped at 15%)
+    3. Diversity penalty for items too similar to already-selected items
     
     Args:
         items: List of candidate items to rerank
@@ -1075,14 +1076,28 @@ def rerank_by_profile_and_mood(items, user_profile_embedding, mood, top_k=50):
         # Normalize to 0-1 range
         mood_scores = np.clip(mood_scores, 0, 1)
     
-    # Combine scores with appropriate weights
-    # If mood provided: weight mood higher (60%) as it represents current intent
-    # If no mood: use only profile scores
+    # --- HYBRID SCORING ---
+    # Uses geometric mean as base (both signals must be good)
+    # Plus capped bonuses for exceptional single-signal matches
     if mood and user_profile_embedding is not None:
-        alpha = 0.4  # profile weight
-        beta = 0.6   # mood weight
-        final_scores = alpha * profile_scores + beta * mood_scores
+        # Geometric mean as base (requires both to be good)
+        # Add small epsilon to avoid sqrt(0)
+        base_scores = np.sqrt((profile_scores + 0.01) * (mood_scores + 0.01))
+        
+        # Bonus for exceptional matches (capped at 15% each)
+        mood_bonus = np.maximum(0, mood_scores - 0.4) * 0.15
+        profile_bonus = np.maximum(0, profile_scores - 0.4) * 0.15
+        
+        final_scores = base_scores + mood_bonus + profile_bonus
         score_type = "combined"
+        
+        # Log top 3 raw scores for debugging
+        top_indices = np.argsort(final_scores)[::-1][:3]
+        for i, idx in enumerate(top_indices):
+            logger.info(f"[Scoring] #{i+1} '{items[idx].get('title', 'Unknown')[:40]}': "
+                       f"mood={mood_scores[idx]:.3f}, profile={profile_scores[idx]:.3f}, "
+                       f"geo_mean={base_scores[idx]:.3f}, mood_bonus={mood_bonus[idx]:.3f}, "
+                       f"profile_bonus={profile_bonus[idx]:.3f}, FINAL={final_scores[idx]:.3f}")
     elif mood:
         final_scores = mood_scores
         score_type = "mood"
@@ -1090,30 +1105,59 @@ def rerank_by_profile_and_mood(items, user_profile_embedding, mood, top_k=50):
         final_scores = profile_scores
         score_type = "profile"
     
-    # Create scored items
-    scored_items = list(zip(items, final_scores, profile_scores, mood_scores))
+    # Create scored items with embeddings for diversity check
+    scored_items = list(zip(items, final_scores, profile_scores, mood_scores, item_embeddings))
     scored_items.sort(key=lambda x: x[1], reverse=True)
     
-    # Build results with transparent match reasons
+    # --- DIVERSITY PENALTY ---
+    # Penalize items too similar to already-selected items
     results = []
-    for item, final, profile, mood_s in scored_items[:top_k]:
+    selected_embeddings = []
+    diversity_threshold = 0.85  # Items with >85% similarity get penalized
+    diversity_penalty = 0.7     # Multiply score by this if too similar
+    
+    for item, final, profile, mood_s, embedding in scored_items:
+        adjusted_score = final
+        diversity_applied = False
+        
+        # Check similarity to already-selected items
+        if selected_embeddings:
+            similarities = cosine_similarity([embedding], selected_embeddings)[0]
+            max_sim = np.max(similarities)
+            if max_sim > diversity_threshold:
+                adjusted_score *= diversity_penalty
+                diversity_applied = True
+                logger.debug(f"Diversity penalty applied: {item.get('title', 'Unknown')[:30]} (sim={max_sim:.2f})")
+        
+        # Log diversity adjustments for top 3
+        if len(results) < 3:
+            logger.info(f"[Diversity] #{len(results)+1} '{item.get('title', 'Unknown')[:40]}': "
+                       f"raw={final:.3f}, adjusted={adjusted_score:.3f}, "
+                       f"diversity_penalty={'YES' if diversity_applied else 'NO'}")
+        
+        # Add to results if still good enough
         item = item.copy()
         
-        # Convert to percentage (scale up since cosine scores are typically 0.1-0.5)
-        final_pct = min(99, int(final * 200))  # Scale up for display
-        profile_pct = min(99, int(profile * 200))
-        mood_pct = min(99, int(mood_s * 200))
+        # Convert to percentage - use realistic scaling
+        # Typical cosine scores: 0.3-0.6, so scale by 120 for reasonable display
+        final_pct = min(99, int(adjusted_score * 120))
+        profile_pct = min(99, int(profile * 120))
+        mood_pct = min(99, int(mood_s * 120))
         
-        # Create transparent match reason
-        if score_type == "combined":
+        # Create transparent match reason - always show breakdown when we have scores
+        if mood_pct > 0 and profile_pct > 0:
             item['match_reason'] = f"<b>{final_pct}%</b> match ({mood_pct}% mood, {profile_pct}% profile)"
-        elif score_type == "mood":
-            item['match_reason'] = f"<b>{final_pct}%</b> match to '{mood}'"
+        elif mood_pct > 0:
+            item['match_reason'] = f"<b>{final_pct}%</b> mood match"
         else:
             item['match_reason'] = f"<b>{final_pct}%</b> profile match"
         
-        item['similarity_score'] = float(final)
+        item['similarity_score'] = float(adjusted_score)
         results.append(item)
+        selected_embeddings.append(embedding)
+        
+        if len(results) >= top_k:
+            break
     
-    logger.info(f"Reranked {len(items)} items -> top {len(results)} by {score_type}")
+    logger.info(f"Reranked {len(items)} items -> top {len(results)} by {score_type} (hybrid+diversity)")
     return results

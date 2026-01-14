@@ -112,6 +112,21 @@ st.markdown("""
     }
     
     /* ========================================
+       CENTER IMAGES IN CONTAINERS
+    ======================================== */
+    [data-testid="stImage"] {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+    
+    [data-testid="stImage"] > img {
+        max-height: 350px !important;
+        width: auto !important;
+        object-fit: contain !important;
+    }
+    
+    /* ========================================
        SIDEBAR STYLING
     ======================================== */
     [data-testid="stSidebar"] {
@@ -506,25 +521,14 @@ def show_onboarding():
     total_rated = len(st.session_state.liked_onboarding) + len(st.session_state.disliked_onboarding)
     min_ratings = 5
     
-    # Header
+    # Compact header
     st.markdown(f"""
-        <div style='text-align: center; margin-bottom: 1rem;'>
-            <h1 style='margin-bottom: 0.3rem;'>Welcome, {st.session_state.user}! 👋</h1>
-            <p style='color: #8b949e;'>Swipe through content to help us learn your taste</p>
+        <div style='text-align: center; margin-bottom: 0.5rem;'>
+            <h2 style='margin: 0;'>Welcome {st.session_state.user}! 👑</h2>
+            <p style='color: #8b949e; margin: 0.2rem 0;'>Swipe your taste. Trash banned.</p>
+            <p style='color: #7c3aed; margin: 0.3rem 0; font-size: 0.9rem;'>Rated: {total_rated} | Need {min_ratings}</p>
         </div>
     """, unsafe_allow_html=True)
-    
-    # Progress indicator
-    progress_text = f"Rated: {total_rated} | Liked: {len(st.session_state.liked_onboarding)} | Need at least {min_ratings}"
-    st.markdown(f"<p style='text-align: center; color: #7c3aed; font-weight: 500;'>{progress_text}</p>", unsafe_allow_html=True)
-    
-    # Check if we've rated enough
-    if total_rated >= min_ratings:
-        st.markdown("""
-            <div style='text-align: center; padding: 0.5rem; background: rgba(124, 58, 237, 0.2); border-radius: 10px; margin-bottom: 1rem;'>
-                <p style='color: #c4b5fd; margin: 0;'>✅ You've rated enough! You can continue or finish setup.</p>
-            </div>
-        """, unsafe_allow_html=True)
     
     # Show current card
     if current_idx < len(content_list):
@@ -533,25 +537,18 @@ def show_onboarding():
         # Center the card
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            with st.container(border=True):
-                # Image
-                img_url = current_item.get('poster_path') or current_item.get('thumbnail')
-                if img_url:
-                    st.image(img_url, width="stretch")
-                else:
-                    st.image("https://via.placeholder.com/400x300?text=No+Image", width="stretch")
-                
-                # Title
-                title = current_item.get('title', 'Unknown')
-                content_type = "🎥 Movie" if current_item.get('type') == 'movie' else "▶️ Video"
-                st.markdown(f"<h3 style='text-align: center; margin: 0.5rem 0;'>{title}</h3>", unsafe_allow_html=True)
-                st.markdown(f"<p style='text-align: center; color: #8b949e;'>{content_type}</p>", unsafe_allow_html=True)
-                
-                # Description (truncated)
-                desc = current_item.get('overview') or current_item.get('description', '')
-                if desc:
-                    truncated = desc[:150] + "..." if len(desc) > 150 else desc
-                    st.markdown(f"<p style='color: #c9d1d9; font-size: 0.9rem; text-align: center;'>{truncated}</p>", unsafe_allow_html=True)
+            # Image centered using HTML (works reliably)
+            img_url = current_item.get('poster_path') or current_item.get('thumbnail')
+            if img_url:
+                st.markdown(f"""
+                    <div style='display: flex; justify-content: center; margin-bottom: 0.5rem;'>
+                        <img src='{img_url}' style='max-height: 280px; max-width: 100%; border-radius: 12px; object-fit: contain;'/>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Title only
+            title = current_item.get('title', 'Unknown')
+            st.markdown(f"<h3 style='text-align: center; margin: 0.5rem 0;'>{title}</h3>", unsafe_allow_html=True)
             
             # Like/Dislike buttons (Tinder style)
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
@@ -648,6 +645,9 @@ def show_dashboard():
             liked_titles = st.session_state.user_data.get('liked_movies_onboarding', [])
             onboarding_content = st.session_state.get('onboarding_movies', [])
             liked_content = (liked_titles, onboarding_content) if liked_titles else None
+            
+            logger.info(f"Dashboard search: liked_titles={len(liked_titles) if liked_titles else 0}, onboarding_content={len(onboarding_content) if onboarding_content else 0}")
+            logger.info(f"Dashboard search: liked_content is {'set' if liked_content else 'None'}")
             
             # Build search query: use mood if provided
             search_query = mood_goal if mood_goal else ""
