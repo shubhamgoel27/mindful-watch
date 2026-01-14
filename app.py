@@ -80,15 +80,6 @@ _db_init_result = initialize_database()
 
 st.set_page_config(page_title="Unrot Me", layout="wide", page_icon="🧠")
 
-# --- Debug / System Status (Sidebar) ---
-with st.sidebar.expander("🛠️ System Status"):
-    tmdb_ok = config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY"
-    yt_ok = config.YOUTUBE_API_KEY and config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY"
-    st.write(f"**TMDB API:** {'✅ Detected' if tmdb_ok else '❌ Missing'}")
-    st.write(f"**YouTube API:** {'✅ Detected' if yt_ok else '❌ Missing'}")
-    if not tmdb_ok or not yt_ok:
-        st.info("Add your API keys to Streamlit Secrets for full functionality.")
-
 # --- Modern Dark Theme CSS ---
 # Netflix/Spotify-inspired styling with glassmorphism and gradients
 st.markdown("""
@@ -789,6 +780,14 @@ def show_admin():
     
     st.sidebar.markdown("### 🔧 Admin Panel")
     st.sidebar.write(f"👤 **{st.session_state.user}**")
+    
+    # System Status (admin only)
+    with st.sidebar.expander("🛠️ System Status"):
+        tmdb_ok = config.TMDB_API_KEY and config.TMDB_API_KEY != "YOUR_TMDB_KEY"
+        yt_ok = config.YOUTUBE_API_KEY and config.YOUTUBE_API_KEY != "YOUR_YOUTUBE_KEY"
+        st.write(f"**TMDB API:** {'✅' if tmdb_ok else '❌'}")
+        st.write(f"**YouTube API:** {'✅' if yt_ok else '❌'}")
+        st.write(f"**yt-dlp:** {'✅' if utils.YT_DLP_AVAILABLE else '❌'}")
     
     if st.sidebar.button("🚪 Logout"):
         st.session_state.user = None
