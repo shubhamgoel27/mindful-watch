@@ -470,6 +470,106 @@ def show_login():
             </div>
         """, unsafe_allow_html=True)
         
+        # Google OAuth Login (if configured)
+        if config.GOOGLE_AUTH_ENABLED:
+            try:
+                from streamlit_google_auth import Authenticate
+                import json
+                import tempfile
+                import os
+                
+                # Create temporary JSON credentials file (required by library)
+                creds_data = {
+                    "web": {
+                        "client_id": config.GOOGLE_CLIENT_ID,
+                        "client_secret": config.GOOGLE_CLIENT_SECRET,
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "redirect_uris": ["http://localhost:8501"]
+                    }
+                }
+                
+                # Write to temp file (cached in session to avoid recreating)
+                if 'google_creds_path' not in st.session_state:
+                    fd, path = tempfile.mkstemp(suffix='.json')
+                    with os.fdopen(fd, 'w') as f:
+                        json.dump(creds_data, f)
+                    st.session_state.google_creds_path = path
+                
+                # Create authenticator
+                authenticator = Authenticate(
+                    secret_credentials_path=st.session_state.google_creds_path,
+                    cookie_name='unrot_me_auth',
+                    cookie_key='unrot_me_secret_key_12345',
+                    redirect_uri="http://localhost:8501",
+                )
+                
+                # Check if already authenticated
+                authenticator.check_authentification()
+                
+                if st.session_state.get("connected"):
+                    user_info = st.session_state.get("user_info", {})
+                    user_email = user_info.get("email", "")
+                    user_name = user_info.get("name", user_email.split("@")[0])
+                    
+                    # Use name for display and login (not email)
+                    display_name = user_name if user_name else user_email.split("@")[0]
+                    
+                    st.success(f"Signed in as {display_name}")
+                    
+                    # Check for admin
+                    if user_email == config.ADMIN_USERNAME or user_name == config.ADMIN_USERNAME:
+                        st.session_state.user = display_name
+                        st.session_state.view = 'admin'
+                        st.rerun()
+                    else:
+                        # Regular user login - use name as user ID
+                        is_new = login_user(display_name)
+                        if is_new:
+                            st.session_state.view = 'onboarding'
+                        else:
+                            st.session_state.view = 'dashboard'
+                        st.rerun()
+                else:
+                    # Show official Google Sign-In button (centered, standard width)
+                    authorization_url = authenticator.get_authorization_url()
+                    st.markdown(f"""
+                        <div style="display: flex; justify-content: center;">
+                            <a href="{authorization_url}" target="_self" style="text-decoration: none;">
+                                <div style="
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    background: white;
+                                    border: 1px solid #dadce0;
+                                    border-radius: 4px;
+                                    padding: 10px 24px;
+                                    cursor: pointer;
+                                    transition: background 0.2s;
+                                    width: 220px;
+                                ">
+                                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+                                         style="width: 18px; height: 18px; margin-right: 12px;" />
+                                    <span style="color: #1a1a1a; font-size: 14px; font-weight: 500; font-family: 'Roboto', sans-serif;">
+                                        Sign in with Google
+                                    </span>
+                                </div>
+                            </a>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+            except ImportError:
+                st.warning("Google Auth package not installed. Using username login.")
+                config.GOOGLE_AUTH_ENABLED = False
+            except Exception as e:
+                logger.error(f"Google Auth error: {e}")
+                st.warning(f"Google login unavailable: {e}")
+        
+        # Divider if both login methods available
+        if config.GOOGLE_AUTH_ENABLED:
+            st.markdown("<p style='text-align: center; color: #8b949e; margin: 1rem 0;'>— or —</p>", unsafe_allow_html=True)
+        
+        # Username login (fallback or primary if Google not configured)
         username = st.text_input("Name", placeholder="Enter your name...", label_visibility="collapsed")
         
         # Show password field only if admin username is entered

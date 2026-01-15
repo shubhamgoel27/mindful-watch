@@ -340,6 +340,18 @@ wheels = [
 ]
 
 [[package]]
+name = "extra-streamlit-components"
+version = "0.1.81"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "streamlit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/49/9b47a3450034d74259f9d4887d85be4e6a771bc21da467b253323d78c4d9/extra_streamlit_components-0.1.81.tar.gz", hash = "sha256:eb9beb7bacfe8b3d238f1888a21c78ac6cfa569341be484bca08c3ea0b15f20d", size = 2250141 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/8d/d2f1eeb52c50c990d14fd91bea35157890bb791c46b3f2bebaa5eef4bdf6/extra_streamlit_components-0.1.81-py3-none-any.whl", hash = "sha256:11a4651dbd03cac04edfbb8711757b1d10e3cdf280b8fa3a43f970d05e684619", size = 2278499 },
+]
+
+[[package]]
 name = "filelock"
 version = "3.20.1"
 source = { registry = "https://pypi.org/simple" }
@@ -446,6 +458,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d5/ad/c1f2b1175096a8d04cf202ad5ea6065f108d26be6fc7215876bde4a7981d/google_auth_httplib2-0.3.0.tar.gz", hash = "sha256:177898a0175252480d5ed916aeea183c2df87c1f9c26705d74ae6b951c268b0b", size = 11134 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/d5/3c97526c8796d3caf5f4b3bed2b05e8a7102326f00a334e7a438237f3b22/google_auth_httplib2-0.3.0-py3-none-any.whl", hash = "sha256:426167e5df066e3f5a0fc7ea18768c08e7296046594ce4c8c409c2457dd1f776", size = 9529 },
+]
+
+[[package]]
+name = "google-auth-oauthlib"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-auth" },
+    { name = "requests-oauthlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fb/87/e10bf24f7bcffc1421b84d6f9c3377c30ec305d082cd737ddaa6d8f77f7c/google_auth_oauthlib-1.2.2.tar.gz", hash = "sha256:11046fb8d3348b296302dd939ace8af0a724042e8029c1b872d87fabc9f41684", size = 20955 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ac/84/40ee070be95771acd2f4418981edb834979424565c3eec3cd88b6aa09d24/google_auth_oauthlib-1.2.2-py3-none-any.whl", hash = "sha256:fd619506f4b3908b5df17b65f39ca8d66ea56986e5472eb5978fd8f3786f00a2", size = 19072 },
 ]
 
 [[package]]
@@ -881,6 +906,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
     { name = "streamlit" },
+    { name = "streamlit-google-auth" },
     { name = "tmdbv3api" },
     { name = "yt-dlp" },
 ]
@@ -900,6 +926,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "sentence-transformers", specifier = ">=5.2.0" },
     { name = "streamlit", specifier = ">=1.52.2" },
+    { name = "streamlit-google-auth", specifier = ">=1.1.8" },
     { name = "tmdbv3api", specifier = ">=1.9.0" },
     { name = "yt-dlp", specifier = ">=2024.0.0" },
 ]
@@ -2014,6 +2041,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.10.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e7/46/bd74733ff231675599650d3e47f361794b22ef3e3770998dda30d3b63726/pyjwt-2.10.1.tar.gz", hash = "sha256:3cc5772eb20009233caf06e9d8a0577824723b44e6648ee0a2aedb6cf9381953", size = 87785 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/ad/689f02752eeec26aed679477e80e632ef1b682313be70793d798c1d5fc8f/PyJWT-2.10.1-py3-none-any.whl", hash = "sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb", size = 22997 },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2638,6 +2674,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/43/20/434aaceccc6e1912671d869926103051330437adba72d538d787a07727ef/streamlit-1.52.2.tar.gz", hash = "sha256:64a4dda8bc5cdd37bfd490e93bb53da35aaef946fcfc283a7980dacdf165108b", size = 8584178 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/95/6b7873f0267973ebd55ba9cd33a690b35a116f2779901ef6185a0e21864d/streamlit-1.52.2-py3-none-any.whl", hash = "sha256:a16bb4fbc9781e173ce9dfbd8ffb189c174f148f9ca4fb8fa56423e84e193fc8", size = 9025937 },
+]
+
+[[package]]
+name = "streamlit-google-auth"
+version = "1.1.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "extra-streamlit-components" },
+    { name = "google-api-python-client" },
+    { name = "google-auth-oauthlib" },
+    { name = "pyjwt" },
+    { name = "streamlit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/96/23/7fdca3d0cfe49892331c0fb957b06ce332324faed03988856da00b1ea1cf/streamlit-google-auth-1.1.8.tar.gz", hash = "sha256:a844b07933d5e95b880bd72753b1ac9e07c8b62210ff5e3e3e69d48a3826883f", size = 7303 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/a6/c530c084bfff54ce185b1e13386ccff43c610f6a2511638dbd2c7db0d99f/streamlit_google_auth-1.1.8-py3-none-any.whl", hash = "sha256:5b3db4c769fcc51469046af85fd771c138e02629312dc58877bb8bbca91e9a83", size = 7101 },
 ]
 
 [[package]]

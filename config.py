@@ -66,3 +66,14 @@ USER_DATA_FILE = "user_data.json"
 # Password is stored in Streamlit Secrets (cloud) or env var (local), never in code
 ADMIN_USERNAME = "power_user_27"
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", None)  # None = admin disabled if not configured
+
+# Google OAuth Settings
+GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID", None)
+GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET", None)
+
+# Check if Google OAuth is configured
+GOOGLE_AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+if GOOGLE_AUTH_ENABLED:
+    logger.info("Google OAuth: Enabled")
+else:
+    logger.warning("Google OAuth: Disabled (credentials not configured)")
