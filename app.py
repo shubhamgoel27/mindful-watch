@@ -478,6 +478,10 @@ def show_login():
                 import tempfile
                 import os
                 
+                # Determine redirect URI dynamically (cloud vs local)
+                # Use GOOGLE_REDIRECT_URI from secrets if set, otherwise default to localhost
+                redirect_uri = config.GOOGLE_REDIRECT_URI or "http://localhost:8501"
+                
                 # Create temporary JSON credentials file (required by library)
                 creds_data = {
                     "web": {
@@ -485,7 +489,7 @@ def show_login():
                         "client_secret": config.GOOGLE_CLIENT_SECRET,
                         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                         "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": ["http://localhost:8501"]
+                        "redirect_uris": [redirect_uri]
                     }
                 }
                 
@@ -496,12 +500,12 @@ def show_login():
                         json.dump(creds_data, f)
                     st.session_state.google_creds_path = path
                 
-                # Create authenticator
+                # Create authenticator with dynamic redirect URI
                 authenticator = Authenticate(
                     secret_credentials_path=st.session_state.google_creds_path,
                     cookie_name='unrot_me_auth',
                     cookie_key='unrot_me_secret_key_12345',
-                    redirect_uri="http://localhost:8501",
+                    redirect_uri=redirect_uri,
                 )
                 
                 # Check if already authenticated

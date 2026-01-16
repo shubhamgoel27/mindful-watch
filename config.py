@@ -70,6 +70,7 @@ ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", None)  # None = admin disabled if 
 # Google OAuth Settings
 GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID", None)
 GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET", None)
+GOOGLE_REDIRECT_URI = get_secret("GOOGLE_REDIRECT_URI", None)  # Set to your Streamlit Cloud URL for cloud deployment
 
 # Check if Google OAuth is configured
 GOOGLE_AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
